@@ -1,4 +1,5 @@
-import sys, os, subprocess
+import sys, os, subprocess, shutil
+
 
 ###############################################################
 # Specify directory to store temporary intercepted packets
@@ -14,14 +15,20 @@ dictionaryPath = ""
 passwordsPath = ""
 ###############################################################
 
+
 def main():
-	environmentSetup()
-	airdumpSetup()
-	# Next steps here
-	cleanUp()
+	try:
+		environmentSetup()
+		airdumpSetup()
+		# Next steps here
+	finally:
+		# this ensures that clean up occurs even on error
+		cleanUp()
+
 
 def bash_command(cmd):
 	return subprocess.Popen(['/bin/bash', '-c', cmd]).communicate()
+
 
 def environmentSetup():
 	global packetPath
@@ -48,6 +55,7 @@ def environmentSetup():
 	if not passwordsPath and os.path.isfile(os.getcwd() + "/passwords.txt"):
 		passwordsPath = os.getcwd() + "/passwords.txt"
 
+
 def setGlobalAttribute(arg):
 	attributeAndPath = arg.split('=')
 	attribute = attributeAndPath[0]
@@ -65,6 +73,7 @@ def setGlobalAttribute(arg):
 	else:
 		raise ValueError("Invalid argument: " + attribute)
 
+
 def airdumpSetup():
 	(stdout, stderr) = bash_command("airmon-ng check kill")
 	# TODO: Handle output
@@ -75,9 +84,13 @@ def airdumpSetup():
 	(stdout, stderr) = bash_command("airmon-ng start wlan1")
 	# TODO: Handle output
 
+
 def cleanUp():
 	# TODO: remove temporary directories and files
-	pass
+	if os.path.exists(os.getcwd() + "/packets"):
+		shutil.rmtree(os.getcwd() + "/packets")
+
 
 if __name__ == "__main__":
 	main()
+
