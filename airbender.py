@@ -23,7 +23,7 @@ passwordsPath = ""
 def main():
 	try:
 		environmentSetup()
-		airdumpSetup()
+		airdump()
 		# Next steps here
 	finally:
 		# this ensures that clean up occurs even on error
@@ -36,7 +36,9 @@ def is_valid_path(parser, arg):
 
 
 def bash_command(cmd):
-	return subprocess.Popen(['/bin/bash', '-c', cmd]).communicate()
+	(stdout, stderr) = subprocess.Popen(['/bin/bash', '-c', cmd], stdout=subprocess.PIPE, 
+                           stderr=subprocess.PIPE).communicate()
+	return stdout.decode("utf-8"), stderr.decode("utf-8")
 
 
 class readable_dir(argparse.Action):
@@ -106,15 +108,49 @@ def setGlobalAttribute(arg):
 		raise ValueError("Invalid argument: " + attribute)
 
 
-def airdumpSetup():
+def airdump():
+	''' airdump setup '''
+	print("Killing potential interfering processes...")
 	(stdout, stderr) = bash_command("airmon-ng check kill")
-	# TODO: Handle output
+	print(stdout) # TODO: strip whitespace out of here
+	# TODO: Handle error output
+
+	print("Stopping avahi-daemon...")
 	(stdout, stderr) = bash_command("/etc/init.d/avahi-daemon stop")
-	# TODO: Handle output
+	print(stdout)
+	# TODO: Handle error output
+
+	# TODO: Check for eth0 interface
+	# Use 'ifconfig'
+
+	print("Taking your eth0 down...")
 	(stdout, stderr) = bash_command("ifconfig eth0 down")
-	# TODO: Handle output
-	(stdout, stderr) = bash_command("airmon-ng start wlan1")
-	# TODO: Handle output
+	print(stdout)
+	# TODO: Handle error output
+
+	# TODO: List available network interfaces that can switch to monitor mode,
+	# else elicit message stating that user has an incompatible network card.
+	# Maybe use 'iw list'
+
+	# TODO: Must figure out which wlan[number] to use
+	print("Listing interface types...")
+	(stdout, stderr) = bash_command("airmon-ng")
+	print(stdout)
+	interfaceName = input("Please type which interface (listed above) you would like to use: ")
+
+	print("Starting airmon-ng...")
+	(stdout, stderr) = bash_command("airmon-ng start " + interfaceName)
+	print(stdout)
+	# TODO: Handle error output
+
+	# Allow user to select a router by MAC address
+	print("Listing routers close to user's location...")
+	if "mon" not in interfaceName: # TODO: hacky
+		interfaceName = interfaceName + "mon"
+	(stdout, stderr) = bash_command("airodump-ng " + interfaceName) # TODO: How do we get this to stdout?
+	print(stdout)
+
+	# airodump-ng -c 6 --bssid 10:BF:48:D3:93:B8 -w dump wlan0mon
 
 
 def cleanUp():
