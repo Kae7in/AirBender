@@ -1,4 +1,8 @@
 import sys, os, subprocess, shutil
+import argparse
+from argparse import ArgumentParser
+import tempfile
+import atexit
 
 
 ###############################################################
@@ -26,14 +30,40 @@ def main():
 		cleanUp()
 
 
+def is_valid_path(parser, arg):
+    if not os.path.exists(arg):
+        parser.error("The path %s does not exist!" % arg)
+
+
 def bash_command(cmd):
 	return subprocess.Popen(['/bin/bash', '-c', cmd]).communicate()
+
+
+class readable_dir(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        prospective_dir=values
+        if not os.path.isdir(prospective_dir):
+            raise argparse.ArgumentTypeError("readable_dir:{0} is not a valid path".format(prospective_dir))
+        if os.access(prospective_dir, os.R_OK):
+            setattr(namespace,self.dest,prospective_dir)
+        else:
+            raise argparse.ArgumentTypeError("readable_dir:{0} is not a readable dir".format(prospective_dir))
 
 
 def environmentSetup():
 	global packetPath
 	global dictionaryPath
 	global passwordsPath
+
+	# Prep ArgumentParser
+	ldir = tempfile.mkdtemp()
+	atexit.register(lambda dir=ldir: shutil.rmtree(ldir))
+
+	# parser = ArgumentParser(description='test', fromfile_prefix_chars="@")
+	# parser.add_argument('--packetPath', action=readable_dir, default=ldir)
+	# parser.add_argument('--dictionaryPath', action=readable_dir, default=ldir) # How will this work?
+	# parser.add_argument('--passwordsPath', action=readable_dir, default=ldir)
+	# args = parser.parse_args()
 
 	# read args, if any
 	args = list(sys.argv)
