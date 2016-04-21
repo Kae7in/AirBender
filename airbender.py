@@ -15,7 +15,7 @@ packetPath = ""
 dictionaryPath = ""
 
 # Specify file to store passwords in
-# Default: Creates file "passwords"
+# Default: Creates file "passwords.txt"
 passwordsPath = ""
 ###############################################################
 
@@ -73,7 +73,8 @@ def environmentSetup():
 		setGlobalAttribute(arg)
 
 	''' The following if statements will only execute if the user
-	user did NOT specify that particular attribute. '''
+	user did NOT specify that particular attribute either global (in this file)
+	or via the commandline. '''
 	# use default path for packets	
 	if not packetPath and not os.path.exists(os.getcwd() + "/packets"):
 		os.makedirs(os.getcwd() + "/packets")
@@ -83,6 +84,7 @@ def environmentSetup():
 		dictionaryPath = os.getcwd() + "/dictionary.txt"
 	# use default passwords file
 	if not passwordsPath and os.path.isfile(os.getcwd() + "/passwords.txt"):
+		# TODO: Make passwords.txt file if there isn't one
 		passwordsPath = os.getcwd() + "/passwords.txt"
 
 
