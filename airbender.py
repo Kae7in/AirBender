@@ -3,6 +3,8 @@ import argparse
 from argparse import ArgumentParser
 import tempfile
 import atexit
+import pandas
+import time
 
 
 ###############################################################
@@ -58,8 +60,8 @@ def environmentSetup():
 	global passwordsPath
 
 	# Prep ArgumentParser
-	ldir = tempfile.mkdtemp()
-	atexit.register(lambda dir=ldir: shutil.rmtree(ldir))
+	# ldir = tempfile.mkdtemp()
+	# atexit.register(lambda dir=ldir: shutil.rmtree(ldir))
 
 	# parser = ArgumentParser(description='test', fromfile_prefix_chars="@")
 	# parser.add_argument('--packetPath', action=readable_dir, default=ldir)
@@ -112,7 +114,7 @@ def airdump():
 	''' airdump setup '''
 	print("Killing potential interfering processes...")
 	(stdout, stderr) = bash_command("airmon-ng check kill")
-	print(stdout) # TODO: strip whitespace out of here
+	print(stdout.strip()) # TODO: strip whitespace out of here
 	# TODO: Handle error output
 
 	print("Stopping avahi-daemon...")
@@ -143,14 +145,28 @@ def airdump():
 	print(stdout)
 	# TODO: Handle error output
 
-	# Allow user to select a router by MAC address
+	# Allow user to select an AP (access point) by MAC address
 	print("Listing routers close to user's location...")
 	if "mon" not in interfaceName: # TODO: hacky
 		interfaceName = interfaceName + "mon"
-	(stdout, stderr) = bash_command("airodump-ng " + interfaceName) # TODO: How do we get this to stdout?
-	print(stdout)
+	if os.path.isfile(os.getcwd() + "/dump-01.csv"):
+		os.remove(os.getcwd() + "/dump-01.csv")
+	process = subprocess.Popen(['/bin/bash', '-c', "airodump-ng " + interfaceName + " -w dump --output-format csv"], stdout=subprocess.PIPE, 
+                           stderr=subprocess.PIPE)
+	# print(process.stdout.decode("utf-8"))
+	# for line in iter(process.stdout.readline, ''):
+		# sys.stdout.write(line)
+	# stdout = process.stdout.decode("utf-8")
+	# stderr = process.stderr.decode("utf-8")
+	# Wait a bit then kill process? Might have to localize bash_command to have access to the process variable to kill.
+	# colnames = ['BSSID', 'ESSID']
+	# accessPoints = pandas.read_csv('dump-01.csv', names=colnames)
+	# bssids = accessPoints.BSSID.tolist()
+	# essids = accessPoints.ESSID.tolist()
+	# print(bssids)
+	# print("\n\n" + essids)
 
-	# airodump-ng -c 6 --bssid 10:BF:48:D3:93:B8 -w dump wlan0mon
+	# airodump-ng -c 6 --bssid 10:05:B1:C5:39:30 -w dump wlan0mon --output-format csv
 
 
 def cleanUp():
