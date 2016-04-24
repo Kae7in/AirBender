@@ -3,7 +3,7 @@ import argparse
 from argparse import ArgumentParser
 import tempfile
 import atexit
-import pandas
+# import pandas
 import time
 
 
@@ -25,7 +25,7 @@ passwordsPath = ""
 def main():
 	try:
 		environmentSetup()
-		airdump()
+		airodump()
 		# Next steps here
 	finally:
 		# this ensures that clean up occurs even on error
@@ -37,10 +37,8 @@ def is_valid_path(parser, arg):
         parser.error("The path %s does not exist!" % arg)
 
 
-def bash_command(cmd):
-	(stdout, stderr) = subprocess.Popen(['/bin/bash', '-c', cmd], stdout=subprocess.PIPE, 
-                           stderr=subprocess.PIPE).communicate()
-	return stdout.decode("utf-8"), stderr.decode("utf-8")
+def bash_command(cmd, timeout=None):
+	return subprocess.Popen(['/bin/bash', '-c', cmd], stdout=subprocess.PIPE)
 
 
 class readable_dir(argparse.Action):
@@ -110,24 +108,24 @@ def setGlobalAttribute(arg):
 		raise ValueError("Invalid argument: " + attribute)
 
 
-def airdump():
+def airodump():
 	''' airdump setup '''
 	print("Killing potential interfering processes...")
-	(stdout, stderr) = bash_command("airmon-ng check kill")
-	print(stdout.strip()) # TODO: strip whitespace out of here
+	process = bash_command("airmon-ng check kill")
+	print(process.stdout.read().decode('utf-8').strip()) # TODO: strip whitespace out of here
 	# TODO: Handle error output
 
 	print("Stopping avahi-daemon...")
-	(stdout, stderr) = bash_command("/etc/init.d/avahi-daemon stop")
-	print(stdout)
+	process = bash_command("/etc/init.d/avahi-daemon stop")
+	print(process.stdout.read().decode('utf-8'))
 	# TODO: Handle error output
 
 	# TODO: Check for eth0 interface
 	# Use 'ifconfig'
 
 	print("Taking your eth0 down...")
-	(stdout, stderr) = bash_command("ifconfig eth0 down")
-	print(stdout)
+	process = bash_command("ifconfig eth0 down")
+	print(process.stdout.read().decode('utf-8'))
 	# TODO: Handle error output
 
 	# TODO: List available network interfaces that can switch to monitor mode,
@@ -135,30 +133,22 @@ def airdump():
 	# Maybe use 'iw list'
 
 	# TODO: Must figure out which wlan[number] to use
-	print("Listing interface types...")
-	(stdout, stderr) = bash_command("airmon-ng")
-	print(stdout)
-	interfaceName = input("Please type which interface (listed above) you would like to use: ")
-
-	print("Starting airmon-ng...")
-	(stdout, stderr) = bash_command("airmon-ng start " + interfaceName)
-	print(stdout)
-	# TODO: Handle error output
-
-	# Allow user to select an AP (access point) by MAC address
-	print("Listing routers close to user's location...")
-	if "mon" not in interfaceName: # TODO: hacky
-		interfaceName = interfaceName + "mon"
-	if os.path.isfile(os.getcwd() + "/dump-01.csv"):
-		os.remove(os.getcwd() + "/dump-01.csv")
-	process = subprocess.Popen(['/bin/bash', '-c', "airodump-ng " + interfaceName + " -w dump --output-format csv"], stdout=subprocess.PIPE, 
-                           stderr=subprocess.PIPE)
-	# print(process.stdout.decode("utf-8"))
-	# for line in iter(process.stdout.readline, ''):
-		# sys.stdout.write(line)
-	# stdout = process.stdout.decode("utf-8")
-	# stderr = process.stderr.decode("utf-8")
-	# Wait a bit then kill process? Might have to localize bash_command to have access to the process variable to kill.
+	while True:
+		print("Listing interface types...")
+		process = bash_command("airmon-ng")
+		print(process.stdout.read().decode('utf-8'))
+		interfaceName = input("Type desired interface (listed above): ")
+		channel = input("Channel number to listen to (0 to scan multiple): ")
+		scanTime = input("Time limit to listen: ")
+		scanAccessPoints(interfaceName, channel, scanTime)
+		result = input("Start new scan? (y=yes, n=no, r=repeat previous scan): ")
+		if result == 'n' or result == 'no' or result == '0':
+			break
+		elif result == 'y' or result == 'yes' or result == '1':
+			continue
+		# TODO: Add repeat option?
+	# TODO: Have user choose MAC Address/maybe pull one randomly from dump file
+	
 	# colnames = ['BSSID', 'ESSID']
 	# accessPoints = pandas.read_csv('dump-01.csv', names=colnames)
 	# bssids = accessPoints.BSSID.tolist()
@@ -169,6 +159,24 @@ def airdump():
 	# airodump-ng -c 6 --bssid 10:05:B1:C5:39:30 -w dump wlan0mon --output-format csv
 
 
+def scanAccessPoints(interfaceName, channel, scanTime):
+	print("Starting airmon-ng...")
+	process = bash_command("airmon-ng start " + interfaceName)
+	print(process.stdout.read().decode('utf-8'))
+	# TODO: Handle error output
+
+	# Allow user to select an AP (access point) by MAC address
+	print("Listing routers close to user's location...")
+	# TODO: What if it's listed as wlan0 but changes to wlan0mon?
+	if int(channel) > 0:
+		airodump = bash_command("airodump-ng -c " + str(channel) + " " + str(interfaceName) + " -w dump --output-format csv")
+	else:
+		airodump = bash_command("airodump-ng " + str(interfaceName) + " -w dump --output-format csv")
+	time.sleep(int(scanTime))
+	airodump.terminate()
+	print("Scan complete.")
+
+
 def cleanUp():
 	# TODO: remove temporary directories and files
 	if os.path.exists(os.getcwd() + "/packets"):
@@ -177,4 +185,3 @@ def cleanUp():
 
 if __name__ == "__main__":
 	main()
-
