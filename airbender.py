@@ -23,6 +23,8 @@ passwordsPath = ""
 
 
 def main():
+	if not os.geteuid() == 0:
+		sys.exit('Please run as root')
 	try:
 		environmentSetup()
 		airodump()
@@ -30,7 +32,6 @@ def main():
 	finally:
 		# this ensures that clean up occurs even on error
 		cleanUp()
-
 
 def is_valid_path(parser, arg):
     if not os.path.exists(arg):
@@ -122,22 +123,18 @@ def airodump():
 
 	# TODO: Check for eth0 interface
 	# Use 'ifconfig'
-
 	print("Taking your eth0 down...")
 	process = bash_command("ifconfig eth0 down")
 	print(process.stdout.read().decode('utf-8'))
 	# TODO: Handle error output
 
-	# TODO: List available network interfaces that can switch to monitor mode,
-	# else elicit message stating that user has an incompatible network card.
-	# Maybe use 'iw list'
-
-	# TODO: Must figure out which wlan[number] to use
 	while True:
 		print("Listing interface types...")
-		process = bash_command("airmon-ng")
-		print(process.stdout.read().decode('utf-8'))
-		interfaceName = input("Type desired interface (listed above): ")
+		interfaceName = query_iw()
+		if interfaceName == '':
+			# TODO: perhaps handle this case better. maybe throw exception
+			# instead of returning empty string??
+			return
 		channel = input("Channel number to listen to (0 to scan multiple): ")
 		scanTime = input("Time limit to listen: ")
 		scanAccessPoints(interfaceName, channel, scanTime)
@@ -176,6 +173,54 @@ def scanAccessPoints(interfaceName, channel, scanTime):
 	airodump.terminate()
 	print("Scan complete.")
 
+def query_iw():
+	# get device names and their corresponding physical names
+	dev_name = {}
+	output = bash_command("iw dev").stdout.read().decode('utf-8').splitlines()
+	for i, line in enumerate(output):
+		if line.startswith('phy'):
+			dev_name[output[i].strip().replace('#','')] = output[i+1].split()[1]
+
+	# find out what modes each device supports
+	modes = {}
+	for phy in dev_name.keys():
+		i=0
+		# call "iw <dev> info"
+		output = bash_command("iw "+phy+" info").stdout.read().decode('utf-8').splitlines()
+		# read indented block following "Supported interface modes:" line
+		while i<len(output):
+			if output[i].strip() == "Supported interface modes:":
+				modes[phy] = []
+				level = len(output[i]) - len(output[i].lstrip('\t'))
+				i+=1
+				while (len(output[i]) - len(output[i].lstrip('\t'))) > level:
+					modes[phy].append(output[i].strip())
+					i += 1
+			i+=1
+
+	# count how many devices support monitor mode
+	compatible_devices = []
+	for phy in modes.keys():
+		if any("monitor" in s for s in modes[phy]):
+			compatible_devices.append(dev_name[phy])
+
+	# check if there are 1 or fewer compatible devices
+	if len(compatible_devices) == 0:
+		print("No compatible wireless devices found.")
+		return ''
+	elif len(compatible_devices) == 1:
+		print("Found one compatible wireless device: " + compatible_devices[0])
+		return compatible_devices[0]
+
+	# ask the user to choose a wireless interface
+	while True:
+		for i, v in enumerate(compatible_devices):
+			print("\t["+str(i)+"] "+v)
+		choice = input(str(len(compatible_devices)) + " compatible wireless devices found. Please choose: ")
+		if choice.isdigit() and (int(choice) >= 0) and (int(choice) < len(compatible_devices)):
+			return compatible_devices[int(choice)]
+		else:
+			print(choice + " is an invalid option, please try again.\n")
 
 def cleanUp():
 	# TODO: remove temporary directories and files
