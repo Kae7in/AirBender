@@ -138,10 +138,10 @@ def airodump():
 		channel = input("Channel number to listen to (0 to scan multiple): ")
 		scanTime = input("Time limit to listen: ")
 		scanAccessPoints(interfaceName, channel, scanTime)
-		result = input("Start new scan? (y=yes, n=no, r=repeat previous scan): ")
+		result = input("Start new scan? (y=yes, n=no): ")
 		if result == 'n' or result == 'no' or result == '0':
 			break
-		elif result == 'y' or result == 'yes' or result == '1':
+		else:
 			continue
 		# TODO: Add repeat option?
 	# TODO: Have user choose MAC Address/maybe pull one randomly from dump file
@@ -152,8 +152,6 @@ def airodump():
 	# essids = accessPoints.ESSID.tolist()
 	# print(bssids)
 	# print("\n\n" + essids)
-
-	# airodump-ng -c 6 --bssid 10:05:B1:C5:39:30 -w dump wlan0mon --output-format csv
 
 
 def scanAccessPoints(interfaceName, channel, scanTime):
