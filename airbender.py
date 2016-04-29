@@ -27,7 +27,8 @@ def main():
 		sys.exit('Please run as root')
 	try:
 		environmentSetup()
-		airodump()
+		getTargetAccessPoint()
+		captureHandshake()
 		# Next steps here
 	finally:
 		# this ensures that clean up occurs even on error
@@ -109,7 +110,7 @@ def setGlobalAttribute(arg):
 		raise ValueError("Invalid argument: " + attribute)
 
 
-def airodump():
+def getTargetAccessPoint():
 	''' airdump setup '''
 	print("Killing potential interfering processes...")
 	process = bash_command("airmon-ng check kill")
@@ -138,20 +139,12 @@ def airodump():
 		channel = input("Channel number to listen to (0 to scan multiple): ")
 		scanTime = input("Time limit to listen: ")
 		scanAccessPoints(interfaceName, channel, scanTime)
-		result = input("Start new scan? (y=yes, n=no): ")
-		if result == 'n' or result == 'no' or result == '0':
-			break
-		else:
+		result = input("Start new scan? (y=yes): ")
+		if result == 'y' or result == 'yes' or result == '1':
 			continue
+		else:
+			break
 		# TODO: Add repeat option?
-	# TODO: Have user choose MAC Address/maybe pull one randomly from dump file
-	
-	# colnames = ['BSSID', 'ESSID']
-	# accessPoints = pandas.read_csv('dump-01.csv', names=colnames)
-	# bssids = accessPoints.BSSID.tolist()
-	# essids = accessPoints.ESSID.tolist()
-	# print(bssids)
-	# print("\n\n" + essids)
 
 
 def scanAccessPoints(interfaceName, channel, scanTime):
@@ -165,6 +158,7 @@ def scanAccessPoints(interfaceName, channel, scanTime):
 	time.sleep(int(scanTime))
 	airodump.terminate()
 	print("Scan complete.")
+
 
 def query_iw():
 	# get device names and their corresponding physical names
@@ -234,6 +228,18 @@ def query_iw():
 	return chosen_interface
 
 	# TODO: Handle error output
+
+
+def captureHandshake():
+	pass
+	# TODO: Have user choose MAC Address/maybe pull one randomly from dump file
+	
+	# colnames = ['BSSID', 'ESSID']
+	# accessPoints = pandas.read_csv('dump-01.csv', names=colnames)
+	# bssids = accessPoints.BSSID.tolist()
+	# essids = accessPoints.ESSID.tolist()
+	# print(bssids)
+	# print("\n\n" + essids)
 
 
 def cleanUp():
