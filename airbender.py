@@ -19,6 +19,15 @@ dictionaryPath = ""
 # Specify file to store passwords in
 # Default: Creates file "passwords.txt"
 passwordsPath = ""
+
+# Specify interface name of the monitor-mode-capable device you
+# would like to use.
+# Default: Searches for monitor-mode-capable devices at runtime
+interfaceName = ""
+
+# Specify access point MAC address (BSSID) to target
+# Default: Present user with detected access points to choose from
+targetAP = ""
 ###############################################################
 
 
@@ -112,6 +121,8 @@ def setGlobalAttribute(arg):
 
 def getTargetAccessPoint():
 	''' airdump setup '''
+	global interfaceName
+
 	print("Killing potential interfering processes...")
 	process = bash_command("airmon-ng check kill")
 	print(process.stdout.read().decode('utf-8').strip()) # TODO: strip whitespace out of here
@@ -130,11 +141,12 @@ def getTargetAccessPoint():
 	# TODO: Handle error output
 
 	while True:
-		print("Listing interface types...")
-		interfaceName = query_iw()
 		if interfaceName == '':
-			# TODO: perhaps handle this case better. maybe throw exception
-			# instead of returning empty string??
+			print("Listing interface types...")
+			interfaceName = query_iw()
+
+		if interfaceName == '':
+			# TODO: raise no capatable inteface exception?
 			return
 		channel = input("Channel number to listen to (0 to scan multiple): ")
 		scanTime = input("Time limit to listen: ")
@@ -231,9 +243,14 @@ def query_iw():
 
 
 def captureHandshake():
-	pass
-	# TODO: Have user choose MAC Address/maybe pull one randomly from dump file
-	
+	# Get MAC address of the target access point (router)
+	routerBSSID = input("Please select router MAC address (BSSID 1): ")
+
+	# List all clients connected to target AP
+	bash_command("airodump-ng -c 6 --bssid " + routerBSSID + " -w packet " + interfaceName)
+	# TODO: Parse input - insert colon delimiters, make all-caps?
+
+	# TODO: Allow for option to choose strongest
 	# colnames = ['BSSID', 'ESSID']
 	# accessPoints = pandas.read_csv('dump-01.csv', names=colnames)
 	# bssids = accessPoints.BSSID.tolist()
@@ -242,11 +259,17 @@ def captureHandshake():
 	# print("\n\n" + essids)
 
 
+
+
 def cleanUp():
-	# TODO: remove temporary directories and files
+	# TODO: remove dump file
 	if os.path.exists(os.getcwd() + "/packets"):
 		shutil.rmtree(os.getcwd() + "/packets")
+
+	if os.path.isfile(os.getcwd() + "/dump-01.csv"):
+		os.remove(os.getcwd() + "/dump-01.csv")
 
 
 if __name__ == "__main__":
 	main()
+
