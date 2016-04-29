@@ -131,7 +131,7 @@ def getTargetAccessPoint():
 
 	while True:
 		print("Listing interface types...")
-		interfaceName = query_iw()
+		interfaceName = getInterfaceName()
 		if interfaceName == '':
 			# TODO: perhaps handle this case better. maybe throw exception
 			# instead of returning empty string??
@@ -148,6 +148,7 @@ def getTargetAccessPoint():
 
 
 def scanAccessPoints(interfaceName, channel, scanTime):
+	print("Using interface: " + interfaceName)
 	# Allow user to select an AP (access point) by MAC address
 	print("Listing routers close to user's location...")
 	# TODO: What if it's listed as wlan0 but changes to wlan0mon?
@@ -160,7 +161,7 @@ def scanAccessPoints(interfaceName, channel, scanTime):
 	print("Scan complete.")
 
 
-def query_iw():
+def getInterfaceName():
 	# get device names and their corresponding physical names
 	dev_name = {}
 	output = bash_command("iw dev").stdout.read().decode('utf-8').splitlines()
@@ -219,11 +220,12 @@ def query_iw():
 
 	# check if interface name updated
 	output = bash_command("iwconfig").stdout.read().decode('utf-8').splitlines()
-	if any(chosen_interface in line.split()[0] for line in output):
-		chosen_interface = line.split()[0]
-	else:
-		print("Can't find updated interface name after putting it into monitor mode")
-		return ''
+	for line in output:
+		if any(chosen_interface in s for s in line.split()):
+			chosen_interface = line.split()[0]
+	# else:
+	# 	print("Can't find updated interface name after putting it into monitor mode")
+	# 	return ''
 
 	return chosen_interface
 
