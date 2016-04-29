@@ -157,11 +157,6 @@ def airodump():
 
 
 def scanAccessPoints(interfaceName, channel, scanTime):
-	print("Starting airmon-ng...")
-	process = bash_command("airmon-ng start " + interfaceName)
-	print(process.stdout.read().decode('utf-8'))
-	# TODO: Handle error output
-
 	# Allow user to select an AP (access point) by MAC address
 	print("Listing routers close to user's location...")
 	# TODO: What if it's listed as wlan0 but changes to wlan0mon?
@@ -205,22 +200,43 @@ def query_iw():
 			compatible_devices.append(dev_name[phy])
 
 	# check if there are 1 or fewer compatible devices
+	# TODO: throw exception instead of returning empty string
+	chosen_interface = ''
 	if len(compatible_devices) == 0:
 		print("No compatible wireless devices found.")
 		return ''
 	elif len(compatible_devices) == 1:
 		print("Found one compatible wireless device: " + compatible_devices[0])
 		return compatible_devices[0]
+		chosen_interface = compatible_devices[0]
 
 	# ask the user to choose a wireless interface
-	while True:
+	while chosen_interface == '':
 		for i, v in enumerate(compatible_devices):
 			print("\t["+str(i)+"] "+v)
 		choice = input(str(len(compatible_devices)) + " compatible wireless devices found. Please choose: ")
 		if choice.isdigit() and (int(choice) >= 0) and (int(choice) < len(compatible_devices)):
-			return compatible_devices[int(choice)]
+			chosen_interface = compatible_devices[int(choice)]
+			break;
 		else:
 			print(choice + " is an invalid option, please try again.\n")
+
+	# enable monitor mode on chosen interface
+	print("Enabling monitor mode on " + chosen_interface + "...")
+	process = bash_command("airmon-ng start " + chosen_interface)
+
+	# check if interface name updated
+	output = bash_command("iwconfig").stdout.read().decode('utf-8').splitlines()
+	if any(chosen_interface in line.split()[0] for line in output):
+		chosen_interface = line.split()[0]
+	else:
+		print("Can't find updated interface name after putting it into monitor mode")
+		return ''
+
+	return chosen_interface
+
+	# TODO: Handle error output
+
 
 def cleanUp():
 	# TODO: remove temporary directories and files
