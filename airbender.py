@@ -40,6 +40,7 @@ def main():
 		sys.exit('Please run as root')
 	try:
 		environmentSetup()
+		killInterference()
 		getTargetAccessPoint()
 		captureHandshake()
 		crackHandshake()
@@ -105,6 +106,25 @@ def environmentSetup():
 		passwordsPath = os.getcwd() + "/passwords.txt"
 
 
+def killInterference():
+	print("Killing potential interfering processes...")
+	process = bash_command("airmon-ng check kill")
+	print(process.stdout.read().decode('utf-8').strip()) # TODO: strip whitespace out of here
+	# TODO: Handle error output
+
+	print("Stopping avahi-daemon...")
+	process = bash_command("/etc/init.d/avahi-daemon stop")
+	print(process.stdout.read().decode('utf-8'))
+	# TODO: Handle error output
+
+	# TODO: Check for eth0 interface
+	# Use 'ifconfig'
+	print("Taking your eth0 down...")
+	process = bash_command("ifconfig eth0 down")
+	print(process.stdout.read().decode('utf-8'))
+	# TODO: Handle error output
+
+
 def setGlobalAttribute(arg):
 	attributeAndPath = arg.split('=')
 	attribute = attributeAndPath[0]
@@ -126,23 +146,6 @@ def setGlobalAttribute(arg):
 def getTargetAccessPoint():
 	''' airdump setup '''
 	global interfaceName, channel
-
-	print("Killing potential interfering processes...")
-	process = bash_command("airmon-ng check kill")
-	print(process.stdout.read().decode('utf-8').strip()) # TODO: strip whitespace out of here
-	# TODO: Handle error output
-
-	print("Stopping avahi-daemon...")
-	process = bash_command("/etc/init.d/avahi-daemon stop")
-	print(process.stdout.read().decode('utf-8'))
-	# TODO: Handle error output
-
-	# TODO: Check for eth0 interface
-	# Use 'ifconfig'
-	print("Taking your eth0 down...")
-	process = bash_command("ifconfig eth0 down")
-	print(process.stdout.read().decode('utf-8'))
-	# TODO: Handle error output
 
 	while True:
 		if interfaceName == '':
@@ -233,6 +236,8 @@ def getInterfaceName():
 	# enable monitor mode on chosen interface
 	print("Enabling monitor mode on " + chosen_interface + "...")
 	process = bash_command("airmon-ng start " + chosen_interface)
+	# wait for airmon-ng to complete
+	process.wait()
 
 	# check if interface name updated
 	output = bash_command("iwconfig").stdout.read().decode('utf-8').splitlines()
@@ -242,6 +247,7 @@ def getInterfaceName():
 	# else:
 	# 	print("Can't find updated interface name after putting it into monitor mode")
 	# 	return ''
+	print("chosen interface: " + chosen_interface)
 
 	return chosen_interface
 
