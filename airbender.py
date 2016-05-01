@@ -72,6 +72,7 @@ def environmentSetup():
 	global packetPath
 	global dictionaryPath
 	global passwordsPath
+	global interfaceName
 
 	# Prep ArgumentParser
 	# ldir = tempfile.mkdtemp()
@@ -105,11 +106,16 @@ def environmentSetup():
 		# TODO: Make passwords.txt file if there isn't one
 		passwordsPath = os.getcwd() + "/passwords.txt"
 
+	# get interfaceName
+	# getInterfaceName() should raise exception if no compatible device found
+	if interfaceName == '':
+		print("Listing interfaces...")
+		interfaceName = getInterfaceName()
 
 def killInterference():
 	print("Killing potential interfering processes...")
 	process = bash_command("airmon-ng check kill")
-	print(process.stdout.read().decode('utf-8').strip()) # TODO: strip whitespace out of here
+	print(process.stdout.read().decode('utf-8').strip())
 	# TODO: Handle error output
 
 	print("Stopping avahi-daemon...")
@@ -118,6 +124,7 @@ def killInterference():
 	# TODO: Handle error output
 
 	# TODO: Check for eth0 interface
+	# TODO: Is this necessary?
 	# Use 'ifconfig'
 	print("Taking your eth0 down...")
 	process = bash_command("ifconfig eth0 down")
@@ -148,13 +155,6 @@ def getTargetAccessPoint():
 	global interfaceName, channel
 
 	while True:
-		if interfaceName == '':
-			print("Listing interfaces...")
-			interfaceName = getInterfaceName()
-
-		if interfaceName == '':
-			# TODO: raise no capatable inteface exception?
-			raise Exception
 		channel = input("Channel number to listen to (0 to scan multiple): ")
 		scanTime = input("Time limit to listen: ")
 		scanAccessPoints(interfaceName, channel, scanTime)
