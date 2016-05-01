@@ -149,7 +149,7 @@ def getTargetAccessPoint():
 
 	while True:
 		if interfaceName == '':
-			print("Listing interface types...")
+			print("Listing interfaces...")
 			interfaceName = getInterfaceName()
 
 		if interfaceName == '':
@@ -181,16 +181,16 @@ def scanAccessPoints(interfaceName, channel, scanTime):
 
 
 def getInterfaceName():
-	# get device names and their corresponding physical names
-	dev_name = {}
+	# get physical names and their corresponding device names
+	phyToInterface = {}
 	output = bash_command("iw dev").stdout.read().decode('utf-8').splitlines()
 	for i, line in enumerate(output):
 		if line.startswith('phy'):
-			dev_name[output[i].strip().replace('#','')] = output[i+1].split()[1]
+			phyToInterface[output[i].strip().replace('#','')] = output[i+1].split()[1]
 
 	# find out what modes each device supports
 	modes = {}
-	for phy in dev_name.keys():
+	for phy in phyToInterface.keys():
 		i=0
 		# call "iw <dev> info"
 		output = bash_command("iw "+phy+" info").stdout.read().decode('utf-8').splitlines()
@@ -206,52 +206,45 @@ def getInterfaceName():
 			i+=1
 
 	# count how many devices support monitor mode
-	compatible_devices = []
-	for phy in modes.keys():
-		if any("monitor" in s for s in modes[phy]):
-			compatible_devices.append(dev_name[phy])
+	compatibleDevices = [phy for phy in modes.keys() if any("monitor" in s for s in modes[phy])]
 
 	# check if there are 1 or fewer compatible devices
-	# TODO: throw exception instead of returning empty string
-	chosen_interface = ''
-	if len(compatible_devices) == 0:
+	chosenDevice = None
+	if len(compatibleDevices) == 0:
 		print("No compatible wireless devices found.")
-		return ''
-	elif len(compatible_devices) == 1:
-		print("Found one compatible wireless device: " + compatible_devices[0])
-		return compatible_devices[0]
-		chosen_interface = compatible_devices[0]
+	elif len(compatibleDevices) == 1:
+		print("Found one compatible wireless device: " +
+			compatibleDevices[0] + " : " + phyToInterface[compatibleDevices[0]])
+		chosenDevice = compatibleDevices[0]
 
 	# ask the user to choose a wireless interface
-	while chosen_interface == '':
-		for i, v in enumerate(compatible_devices):
-			print("\t["+str(i)+"] "+v)
-		choice = input(str(len(compatible_devices)) + " compatible wireless devices found. Please choose: ")
-		if choice.isdigit() and (int(choice) >= 0) and (int(choice) < len(compatible_devices)):
-			chosen_interface = compatible_devices[int(choice)]
-			break;
+	while chosenDevice == None:
+		for i, phy in enumerate(compatibleDevices):
+			print("\t["+str(i)+"] " + phy + " : " + phyToInterface[phy])
+
+		choice = input(str(len(compatibleDevices)) + " compatible wireless devices found. Please choose: ")
+		if choice.isdigit() and (int(choice) >= 0) and (int(choice) < len(compatibleDevices)):
+			chosenDevice = compatibleDevices[int(choice)]
 		else:
 			print(choice + " is an invalid option, please try again.\n")
 
-	# enable monitor mode on chosen interface
-	print("Enabling monitor mode on " + chosen_interface + "...")
-	process = bash_command("airmon-ng start " + chosen_interface)
+	# enable monitor mode on interface for chosen device
+	print("Enabling monitor mode on " + phyToInterface[chosenDevice] + "...")
+	process = bash_command("airmon-ng start " + phyToInterface[chosenDevice])
 	# wait for airmon-ng to complete
 	process.wait()
 
-	# check if interface name updated
-	output = bash_command("iwconfig").stdout.read().decode('utf-8').splitlines()
-	for line in output:
-		if any(chosen_interface in s for s in line.split()):
-			chosen_interface = line.split()[0]
-	# else:
-	# 	print("Can't find updated interface name after putting it into monitor mode")
-	# 	return ''
-	print("chosen interface: " + chosen_interface)
+	# update interface names for devices
+	output = bash_command("iw dev").stdout.read().decode('utf-8').splitlines()
+	for i, line in enumerate(output):
+		phy = line.strip().replace('#','')
+		if phy == chosenDevice:
+			interface = output[i+1].split()[1]
+			if interface != phyToInterface[chosenDevice]:
+				phyToInterface[phy] = interface
+				print("Updated interface name: " + phyToInterface[chosenDevice])
 
-	return chosen_interface
-
-	# TODO: Handle error output
+	return phyToInterface[chosenDevice]
 
 
 def captureHandshake():
