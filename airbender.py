@@ -28,13 +28,13 @@ interfaceName = ""
 
 # Specify access point MAC address (BSSID) to target
 # Default: Present user with detected access points to choose from
-targetBSSID = "10:BF:48:D3:93:B8" # CS378-EthicalHacking-GDC-2.212
-# targetBSSID = ""
+# targetBSSID = "10:BF:48:D3:93:B8" # CS378-EthicalHacking-GDC-2.212
+targetBSSID = ""
 
 # Specify channel to scan on
 # Default: Prompt user to choose channel or scan all channels
-channel = "6"
-# channel = ""
+# channel = "6"
+channel = ""
 ###############################################################
 
 
@@ -57,7 +57,7 @@ def is_valid_path(parser, arg):
         parser.error("The path %s does not exist!" % arg)
 
 
-def bash_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE):
+def bash_command(cmd, stdout=subprocess.PIPE, stderr=None, stdin=subprocess.PIPE):
 	process = subprocess.Popen(cmd.split(),
 			stdout=stdout,
 			stderr=stderr,
@@ -204,14 +204,12 @@ def scanAccessPoints(interfaceName, channel):
 				" -c " + str(channel) +
 				" --output-format csv" +
 				" -w " + packetPath + "dump" +
-				" " + interfaceName,
-				debug = True)
+				" " + interfaceName)
 	else:
 		airodump = bash_command("airodump-ng" +
 				" --output-format csv" +
 				" -w " + packetPath + "dump" +
-				" " + interfaceName,
-				debug = True)
+				" " + interfaceName)
 	time.sleep(int(scanTime))
 	airodump.terminate()
 	print("Scan complete.")
@@ -294,7 +292,10 @@ def captureHandshake():
 			" --bssid " + str(targetBSSID) +
 			" --output-format cap" +
 			" -w " + packetPath + "packet" +
-			" " + str(interfaceName))
+			" " + str(interfaceName),
+			stdout=subprocess.PIPE,
+			stderr=subprocess.PIPE,
+			stdin=subprocess.PIPE)
 	clientMacAddress = scanClientsForAccessPoint()
 	deauthenticateClient(clientMacAddress)
 	time.sleep(8)
