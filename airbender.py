@@ -227,8 +227,7 @@ def getTargetAccessPoint():
 	global interfaceName
 	global channel
 	global targetBSSID
-	# global targetESSID
-	targetESSID = ''
+	global targetESSID
 
 	while channel == '':
 		user_input = input("Channel number to listen to (0 to scan multiple): ")
