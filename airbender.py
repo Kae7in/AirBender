@@ -42,9 +42,9 @@ channel = ""
 # Default: False
 verbose = False
 
-# Set time limit for airodump scan
-# Default: 60
-airodumpTimeout = 60
+# Prompt user for scan times before scanning
+# Default: False
+promptScanTime = False
 ###############################################################
 
 
@@ -97,7 +97,7 @@ def environmentSetup():
 	global targetESSID
 	global channel
 	global verbose
-	global airodumpTimeout
+	global promptScanTime
 
 	# Parse arguments
 	parser = ArgumentParser()
@@ -121,8 +121,8 @@ def environmentSetup():
 		channel = args.channel
 	if args.verbose:
 		verbose = True
-	if args.timeout:
-		airodumpTimeout = args.timeout
+	if args.scantime:
+		promptScanTime = True
 
 	''' DEFAULTS -
 	The following if statements will only execute if the user
@@ -182,8 +182,8 @@ def parseArguments(parser):
 						Default: prompt user to specify channel or scan all channels', type=str)
 	parser.add_argument('-v', '--verbose', help='Verbose output flag\n\
 						Default: False', action="store_true")
-	parser.add_argument('-t', '--timeout', help='Specify timeout for airodump scan\n\
-						Default: 60 seconds', type=int)
+	parser.add_argument('-s', '--scantime', help='Prompt user for scan times before scanning\n\
+						Default: False', action="store_true")
 
 	args = parser.parse_args()
 
@@ -421,11 +421,14 @@ def getInterfaceName():
 def captureHandshake():
 	global targetBSSID
 	global interfaceName
-	global airodumpTimeout
+	global promptScanTime
 
 	# listen for a WPA handshake, run for given amount of time, deauthing
 	# clients meanwhile
-	scanTime = str(airodumpTimeout)
+	scanTime = '10'
+	if promptScanTime:
+		while not scanTime.isdigit():
+			scanTime = input("Time limit to listen for WPA handshake (seconds): ")
 
 	# List all clients connected to target AP
 	# generate airodump command (plus arguments)
