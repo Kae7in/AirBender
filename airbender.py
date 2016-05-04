@@ -121,8 +121,8 @@ def environmentSetup():
 		channel = args.channel
 	if args.verbose:
 		verbose = True
-	if args.airodumpTimeout:
-		airodumpTimeout = args.airodumpTimeout
+	if args.timeout:
+		airodumpTimeout = args.timeout
 
 	''' DEFAULTS -
 	The following if statements will only execute if the user
@@ -239,6 +239,9 @@ def getTargetAccessPoint():
 	global targetBSSID
 	global targetESSID
 
+	if channel == '' and targetESSID != '':
+		channel = 0
+
 	while channel == '':
 		user_input = input("Channel number to listen to (0 to scan multiple): ")
 		if user_input.isdigit() and 0 <= int(user_input) <= 14:
@@ -301,7 +304,7 @@ def scanAccessPoints(interfaceName, channel='0', scanTime=5):
 	global packetPath
 
 	# Allow user to select an AP (access point) by MAC address
-	print("Listing access points close to user's location...")
+	print("Scanning for access points...")
 
 	out = open(packetPath+"stdout.txt","wb")
 	err = open(packetPath+"stderr.txt","wb")
