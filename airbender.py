@@ -381,8 +381,6 @@ def captureHandshake():
 	time.sleep(10)
 	print("Killing packet dump of AP: " + targetBSSID)
 	airodump_proc.terminate()
-	# if os.path.isfile(packetPath + "check.txt"): # part of Attempt 2
-		# assert(0)
 
 
 def scanClientsAtAccessPoint(targetESSID=None, scanTime=5):
