@@ -41,6 +41,10 @@ channel = ""
 # Verbose output flag
 # Default: False
 verbose = False
+
+# Prompt user for scan times before scanning
+# Default: False
+promptScanTime = False
 ###############################################################
 
 
@@ -92,6 +96,7 @@ def environmentSetup():
 	global targetESSID
 	global channel
 	global verbose
+	global promptScanTime
 
 	# Parse arguments
 	parser = ArgumentParser()
@@ -115,6 +120,8 @@ def environmentSetup():
 		channel = args.channel
 	if args.verbose:
 		verbose = True
+	if args.scantime:
+		promptScanTime = True
 
 	''' DEFAULTS -
 	The following if statements will only execute if the user
@@ -155,7 +162,7 @@ def environmentSetup():
 	# get name of wireless interface to use
 	# getInterfaceName() should raise exception if no compatible device found
 	if interfaceName == '':
-		print("Listing interfaces...")
+		print("Getting interfaces...")
 		interfaceName = getInterfaceName()
 
 
@@ -173,6 +180,8 @@ def parseArguments(parser):
 	parser.add_argument('-c', '--channel', help='Channel to scan on\n\
 						Default: prompt user to specify channel or scan all channels', type=str)
 	parser.add_argument('-v', '--verbose', help='Verbose output flag\n\
+						Default: False', action="store_true")
+	parser.add_argument('-s', '--scantime', help='Prompt user for scan times before scanning\n\
 						Default: False', action="store_true")
 
 	args = parser.parse_args()
@@ -398,12 +407,14 @@ def getInterfaceName():
 def captureHandshake():
 	global targetBSSID
 	global interfaceName
+	global promptScanTime
 
 	# listen for a WPA handshake, run for given amount of time, deauthing
 	# clients meanwhile
-	scanTime = ''
-	while not scanTime.isdigit():
-		scanTime = input("Time limit to listen for WPA handshake (seconds): ")
+	scanTime = '10'
+	if promptScanTime:
+		while not scanTime.isdigit():
+			scanTime = input("Time limit to listen for WPA handshake (seconds): ")
 
 	# TODO: Can't figure out how to read output of airodump for successful
 	# handshake capture. So run it interactively after the deauthentication.
