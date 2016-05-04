@@ -41,6 +41,10 @@ channel = ""
 # Verbose output flag
 # Default: False
 verbose = False
+
+# Set time limit for airodump scan
+# Default: 60
+airodumpTimeout = 60
 ###############################################################
 
 
@@ -93,6 +97,7 @@ def environmentSetup():
 	global targetESSID
 	global channel
 	global verbose
+	global airodumpTimeout
 
 	# Parse arguments
 	parser = ArgumentParser()
@@ -116,6 +121,8 @@ def environmentSetup():
 		channel = args.channel
 	if args.verbose:
 		verbose = True
+	if args.airodumpTimeout:
+		airodumpTimeout = args.airodumpTimeout
 
 	''' DEFAULTS -
 	The following if statements will only execute if the user
@@ -156,7 +163,7 @@ def environmentSetup():
 	# get name of wireless interface to use
 	# getInterfaceName() should raise exception if no compatible device found
 	if interfaceName == '':
-		print("Listing interfaces...")
+		print("Getting interfaces...")
 		interfaceName = getInterfaceName()
 
 
@@ -175,6 +182,8 @@ def parseArguments(parser):
 						Default: prompt user to specify channel or scan all channels', type=str)
 	parser.add_argument('-v', '--verbose', help='Verbose output flag\n\
 						Default: False', action="store_true")
+	parser.add_argument('-t', '--timeout', help='Specify timeout for airodump scan\n\
+						Default: 60 seconds', type=int)
 
 	args = parser.parse_args()
 
@@ -409,12 +418,11 @@ def getInterfaceName():
 def captureHandshake():
 	global targetBSSID
 	global interfaceName
+	global airodumpTimeout
 
 	# listen for a WPA handshake, run for given amount of time, deauthing
 	# clients meanwhile
-	scanTime = ''
-	while not scanTime.isdigit():
-		scanTime = input("Time limit to listen for WPA handshake (seconds): ")
+	scanTime = str(airodumpTimeout)
 
 	# List all clients connected to target AP
 	# generate airodump command (plus arguments)
